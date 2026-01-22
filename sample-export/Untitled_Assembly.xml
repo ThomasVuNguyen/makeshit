@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mujoco model="Untitled_Assembly">
+  <compiler angle="degree" meshdir="meshes"/>
+  
+  <option gravity="0 0 -9.81"/>
+  
+  <asset>
+    <mesh name="Joint_-_Horn_mesh" file="Joint_-_Horn.stl" scale="1.000000 1.000000 1.000000"/>
+    <mesh name="Joint_-_mg996r_motor_mesh" file="Joint_-_mg996r_motor.stl" scale="1.000000 1.000000 1.000000"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 3" dir="0 0 -1" diffuse="1 1 1"/>
+    <geom type="plane" size="10 10 0.1" rgba="0.9 0.9 0.9 1"/>
+    <body name="Joint_-_mg996r_motor" pos="0.000000 0.000000 25.011716" euler="0.00 0.00 0.00">
+      <geom type="mesh" mesh="Joint_-_mg996r_motor_mesh" rgba="0.7 0.7 0.7 1"/>
+      <body name="Joint_-_Horn" pos="-10.250000 16.550001 25.011716" euler="0.00 0.00 0.00">
+        <joint name="Joint_-_mg996r_motor_to_Joint_-_Horn" type="slide" axis="0 0 1"/>
+        <geom type="mesh" mesh="Joint_-_Horn_mesh" rgba="0.7 0.7 0.7 1"/>
+      </body>
+    </body>
+  </worldbody>
+
+</mujoco>

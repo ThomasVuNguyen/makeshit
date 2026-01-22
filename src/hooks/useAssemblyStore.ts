@@ -567,7 +567,7 @@ export const useAssemblyStore = create<AssemblyState>()(
                         p.id === partId ? {
                             ...p,
                             position: newPartPos.toArray(),
-                            rotation: new THREE.Euler().setFromQuaternion(newPartQuat).toArray() as [number, number, number]
+                            rotation: new THREE.Euler().setFromQuaternion(newPartQuat).toArray().slice(0, 3) as [number, number, number]
                         } : p
                     ),
                     alignStep: 'confirm',
