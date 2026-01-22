@@ -1,5 +1,7 @@
 # MakeShit
 
+![MakeShit](public/makeshit.png)
+
 **MakeShit** is a modern, intuitive web-based CAD tool designed for rapidly assembling and configuring robot mechanisms for **MuJoCo** simulation.
 
 > **Simplify your simulation workflow.**  
