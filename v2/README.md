@@ -1,5 +1,5 @@
 # Robot Design Studio
-
+  
 A web-based CAD assembly tool for designing robots, with direct export to MuJoCo for physics simulation and training.
 
 ![Robot Assembly → MuJoCo Simulation](https://img.shields.io/badge/STEP%20Files-→%20MuJoCo-blue)
