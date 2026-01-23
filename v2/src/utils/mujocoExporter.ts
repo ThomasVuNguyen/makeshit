@@ -190,7 +190,10 @@ export function exportToMJCF(parts: Part[], mates: Mate[]): string {
     lines.push('    <geom name="floor" type="plane" size="1 1 0.1" rgba="0.3 0.3 0.3 1"/>')
     lines.push('')
 
-    // Parts as bodies
+    // Parts as bodies - track which joints actually get created
+    const createdJoints: Array<{ name: string; type: string; mateIndex: number }> = []
+    const addedChildParts = new Set<string>() // Track to avoid duplicate bodies
+
     parts.forEach((part, index) => {
         const pos = part.object.position
         const meshName = part.name.replace('.step', '')
@@ -205,32 +208,60 @@ export function exportToMJCF(parts: Part[], mates: Mate[]): string {
             lines.push(`    <body name="${meshName}" pos="${px} ${py} ${pz}">`)
             lines.push(`      <geom type="mesh" mesh="${meshName}" rgba="0.4 0.4 0.4 1"/>`)
 
-            // Add child bodies for mated parts
+            // Group mates by child part to consolidate joints
+            const childMates = new Map<string, Array<{ mate: Mate; mateIdx: number }>>()
+
             mates.forEach((mate, mateIdx) => {
-                if (mate.face1.partId === part.id) {
-                    const childPart = parts.find(p => p.id === mate.face2.partId)
-                    if (childPart) {
-                        const childMeshName = childPart.name.replace('.step', '')
-                        const childPos = childPart.object.position
-                        // Relative position
-                        const relX = ((childPos.x - pos.x) * 0.001).toFixed(4)
-                        const relY = ((childPos.y - pos.y) * 0.001).toFixed(4)
-                        const relZ = ((childPos.z - pos.z) * 0.001).toFixed(4)
+                // Check if this part is in either face1 or face2 of the mate
+                const isParentFace1 = mate.face1.partId === part.id
+                const isParentFace2 = mate.face2.partId === part.id
 
-                        lines.push('')
-                        lines.push(`      <!-- Mated: ${childMeshName} -->`)
-                        lines.push(`      <body name="${childMeshName}" pos="${relX} ${relY} ${relZ}">`)
-
-                        if (mate.type === 'cylindrical') {
-                            lines.push(`        <joint name="joint_${mateIdx}" type="hinge" axis="0 0 1" range="-3.14159 3.14159"/>`)
-                        } else {
-                            lines.push(`        <joint name="joint_${mateIdx}" type="slide" axis="0 0 1" range="-0.01 0.01"/>`)
-                        }
-
-                        lines.push(`        <geom type="mesh" mesh="${childMeshName}" rgba="0.9 0.9 0.9 1"/>`)
-                        lines.push(`      </body>`)
-                    }
+                let childPart: Part | undefined
+                if (isParentFace1) {
+                    childPart = parts.find(p => p.id === mate.face2.partId)
+                } else if (isParentFace2) {
+                    childPart = parts.find(p => p.id === mate.face1.partId)
                 }
+
+                if (childPart) {
+                    const existing = childMates.get(childPart.id) || []
+                    existing.push({ mate, mateIdx })
+                    childMates.set(childPart.id, existing)
+                }
+            })
+
+            // Now add each child body once with all its joints
+            childMates.forEach((mateList, childPartId) => {
+                const childPart = parts.find(p => p.id === childPartId)
+                if (!childPart) return
+
+                const childMeshName = childPart.name.replace('.step', '')
+                const childPos = childPart.object.position
+                // Relative position
+                const relX = ((childPos.x - pos.x) * 0.001).toFixed(4)
+                const relY = ((childPos.y - pos.y) * 0.001).toFixed(4)
+                const relZ = ((childPos.z - pos.z) * 0.001).toFixed(4)
+
+                lines.push('')
+                lines.push(`      <!-- Mated: ${childMeshName} -->`)
+                lines.push(`      <body name="${childMeshName}" pos="${relX} ${relY} ${relZ}">`)
+
+                // Prioritize cylindrical mate for the primary joint
+                const cylindricalMate = mateList.find(m => m.mate.type === 'cylindrical')
+                if (cylindricalMate) {
+                    const jointName = `joint_${cylindricalMate.mateIdx}`
+                    lines.push(`        <joint name="${jointName}" type="hinge" axis="0 0 1" range="-3.14159 3.14159"/>`)
+                    createdJoints.push({ name: jointName, type: 'cylindrical', mateIndex: cylindricalMate.mateIdx })
+                } else {
+                    // Use planar if no cylindrical
+                    const planarMate = mateList[0]
+                    const jointName = `joint_${planarMate.mateIdx}`
+                    lines.push(`        <joint name="${jointName}" type="slide" axis="0 0 1" range="-0.01 0.01"/>`)
+                    createdJoints.push({ name: jointName, type: 'planar', mateIndex: planarMate.mateIdx })
+                }
+
+                lines.push(`        <geom type="mesh" mesh="${childMeshName}" rgba="0.9 0.9 0.9 1"/>`)
+                lines.push(`      </body>`)
             })
 
             lines.push('    </body>')
@@ -241,11 +272,11 @@ export function exportToMJCF(parts: Part[], mates: Mate[]): string {
     lines.push('  </worldbody>')
     lines.push('')
 
-    // Actuators
+    // Actuators - only for ACTUALLY created cylindrical joints
     lines.push('  <actuator>')
-    mates.forEach((mate, index) => {
-        if (mate.type === 'cylindrical') {
-            lines.push(`    <motor name="motor_${index}" joint="joint_${index}" gear="1" ctrllimited="true" ctrlrange="-1 1"/>`)
+    createdJoints.forEach((joint) => {
+        if (joint.type === 'cylindrical') {
+            lines.push(`    <motor name="motor_${joint.mateIndex}" joint="${joint.name}" gear="1" ctrllimited="true" ctrlrange="-1 1"/>`)
         }
     })
     lines.push('  </actuator>')
