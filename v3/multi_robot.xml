@@ -1,0 +1,417 @@
+<mujoco model="multi_bipedal_walker">
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="RK4"/>
+  
+  <default>
+    <joint armature="0.01" damping="0.5" limited="true"/>
+    <geom condim="3" friction="1.0 0.5 0.5" rgba="0.8 0.6 0.4 1"/>
+    <motor ctrllimited="true" ctrlrange="-1 1"/>
+  </default>
+  
+  <visual>
+    <global offwidth="1920" offheight="1080"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+  </visual>
+  
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="10 10" reflectance="0.2"/>
+  </asset>
+
+  <worldbody>
+    <geom name="floor" type="plane" size="100 100 0.1" material="groundplane"/>
+    
+    <!-- Robot 0 -->
+    <body name="torso_0" pos="-4.5 0 0.8">
+      <freejoint name="root_0"/>
+      <geom name="torso_geom_0" type="capsule" fromto="0 0 0 0 0 0.3" size="0.08" rgba="0.3 0.6 0.9 1"/>
+      <site name="torso_site_0" pos="0 0 0.15"/>
+      <geom name="head_0" type="sphere" pos="0 0 0.4" size="0.1" rgba="0.9 0.7 0.5 1"/>
+      <body name="left_thigh_0" pos="-0.08 0 0">
+        <joint name="left_hip_0" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="left_thigh_geom_0" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.4 0.7 0.4 1"/>
+        <body name="left_shin_0" pos="0 0 -0.3">
+          <joint name="left_knee_0" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="left_shin_geom_0" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.4 0.7 0.4 1"/>
+          <body name="left_foot_0" pos="0 0 -0.3">
+            <joint name="left_ankle_0" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="left_foot_geom_0" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.6 0.3 0.3 1"/>
+          </body>
+        </body>
+      </body>
+      <body name="right_thigh_0" pos="0.08 0 0">
+        <joint name="right_hip_0" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="right_thigh_geom_0" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.4 0.7 0.4 1"/>
+        <body name="right_shin_0" pos="0 0 -0.3">
+          <joint name="right_knee_0" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="right_shin_geom_0" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.4 0.7 0.4 1"/>
+          <body name="right_foot_0" pos="0 0 -0.3">
+            <joint name="right_ankle_0" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="right_foot_geom_0" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.6 0.3 0.3 1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- Robot 1 -->
+    <body name="torso_1" pos="-3.5 0 0.8">
+      <freejoint name="root_1"/>
+      <geom name="torso_geom_1" type="capsule" fromto="0 0 0 0 0 0.3" size="0.08" rgba="0.9 0.3 0.3 1"/>
+      <site name="torso_site_1" pos="0 0 0.15"/>
+      <geom name="head_1" type="sphere" pos="0 0 0.4" size="0.1" rgba="0.9 0.7 0.5 1"/>
+      <body name="left_thigh_1" pos="-0.08 0 0">
+        <joint name="left_hip_1" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="left_thigh_geom_1" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.7 0.4 0.4 1"/>
+        <body name="left_shin_1" pos="0 0 -0.3">
+          <joint name="left_knee_1" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="left_shin_geom_1" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.7 0.4 0.4 1"/>
+          <body name="left_foot_1" pos="0 0 -0.3">
+            <joint name="left_ankle_1" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="left_foot_geom_1" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.5 0.2 0.2 1"/>
+          </body>
+        </body>
+      </body>
+      <body name="right_thigh_1" pos="0.08 0 0">
+        <joint name="right_hip_1" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="right_thigh_geom_1" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.7 0.4 0.4 1"/>
+        <body name="right_shin_1" pos="0 0 -0.3">
+          <joint name="right_knee_1" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="right_shin_geom_1" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.7 0.4 0.4 1"/>
+          <body name="right_foot_1" pos="0 0 -0.3">
+            <joint name="right_ankle_1" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="right_foot_geom_1" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.5 0.2 0.2 1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- Robot 2 -->
+    <body name="torso_2" pos="-2.5 0 0.8">
+      <freejoint name="root_2"/>
+      <geom name="torso_geom_2" type="capsule" fromto="0 0 0 0 0 0.3" size="0.08" rgba="0.3 0.9 0.3 1"/>
+      <site name="torso_site_2" pos="0 0 0.15"/>
+      <geom name="head_2" type="sphere" pos="0 0 0.4" size="0.1" rgba="0.9 0.7 0.5 1"/>
+      <body name="left_thigh_2" pos="-0.08 0 0">
+        <joint name="left_hip_2" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="left_thigh_geom_2" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.4 0.7 0.4 1"/>
+        <body name="left_shin_2" pos="0 0 -0.3">
+          <joint name="left_knee_2" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="left_shin_geom_2" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.4 0.7 0.4 1"/>
+          <body name="left_foot_2" pos="0 0 -0.3">
+            <joint name="left_ankle_2" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="left_foot_geom_2" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.3 0.5 0.3 1"/>
+          </body>
+        </body>
+      </body>
+      <body name="right_thigh_2" pos="0.08 0 0">
+        <joint name="right_hip_2" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="right_thigh_geom_2" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.4 0.7 0.4 1"/>
+        <body name="right_shin_2" pos="0 0 -0.3">
+          <joint name="right_knee_2" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="right_shin_geom_2" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.4 0.7 0.4 1"/>
+          <body name="right_foot_2" pos="0 0 -0.3">
+            <joint name="right_ankle_2" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="right_foot_geom_2" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.3 0.5 0.3 1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- Robot 3 -->
+    <body name="torso_3" pos="-1.5 0 0.8">
+      <freejoint name="root_3"/>
+      <geom name="torso_geom_3" type="capsule" fromto="0 0 0 0 0 0.3" size="0.08" rgba="0.9 0.9 0.3 1"/>
+      <site name="torso_site_3" pos="0 0 0.15"/>
+      <geom name="head_3" type="sphere" pos="0 0 0.4" size="0.1" rgba="0.9 0.7 0.5 1"/>
+      <body name="left_thigh_3" pos="-0.08 0 0">
+        <joint name="left_hip_3" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="left_thigh_geom_3" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.7 0.7 0.3 1"/>
+        <body name="left_shin_3" pos="0 0 -0.3">
+          <joint name="left_knee_3" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="left_shin_geom_3" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.7 0.7 0.3 1"/>
+          <body name="left_foot_3" pos="0 0 -0.3">
+            <joint name="left_ankle_3" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="left_foot_geom_3" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.5 0.5 0.2 1"/>
+          </body>
+        </body>
+      </body>
+      <body name="right_thigh_3" pos="0.08 0 0">
+        <joint name="right_hip_3" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="right_thigh_geom_3" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.7 0.7 0.3 1"/>
+        <body name="right_shin_3" pos="0 0 -0.3">
+          <joint name="right_knee_3" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="right_shin_geom_3" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.7 0.7 0.3 1"/>
+          <body name="right_foot_3" pos="0 0 -0.3">
+            <joint name="right_ankle_3" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="right_foot_geom_3" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.5 0.5 0.2 1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- Robot 4 -->
+    <body name="torso_4" pos="-0.5 0 0.8">
+      <freejoint name="root_4"/>
+      <geom name="torso_geom_4" type="capsule" fromto="0 0 0 0 0 0.3" size="0.08" rgba="0.9 0.5 0.1 1"/>
+      <site name="torso_site_4" pos="0 0 0.15"/>
+      <geom name="head_4" type="sphere" pos="0 0 0.4" size="0.1" rgba="0.9 0.7 0.5 1"/>
+      <body name="left_thigh_4" pos="-0.08 0 0">
+        <joint name="left_hip_4" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="left_thigh_geom_4" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.7 0.4 0.2 1"/>
+        <body name="left_shin_4" pos="0 0 -0.3">
+          <joint name="left_knee_4" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="left_shin_geom_4" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.7 0.4 0.2 1"/>
+          <body name="left_foot_4" pos="0 0 -0.3">
+            <joint name="left_ankle_4" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="left_foot_geom_4" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.5 0.3 0.1 1"/>
+          </body>
+        </body>
+      </body>
+      <body name="right_thigh_4" pos="0.08 0 0">
+        <joint name="right_hip_4" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="right_thigh_geom_4" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.7 0.4 0.2 1"/>
+        <body name="right_shin_4" pos="0 0 -0.3">
+          <joint name="right_knee_4" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="right_shin_geom_4" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.7 0.4 0.2 1"/>
+          <body name="right_foot_4" pos="0 0 -0.3">
+            <joint name="right_ankle_4" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="right_foot_geom_4" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.5 0.3 0.1 1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- Robot 5 -->
+    <body name="torso_5" pos="0.5 0 0.8">
+      <freejoint name="root_5"/>
+      <geom name="torso_geom_5" type="capsule" fromto="0 0 0 0 0 0.3" size="0.08" rgba="0.5 0.3 0.9 1"/>
+      <site name="torso_site_5" pos="0 0 0.15"/>
+      <geom name="head_5" type="sphere" pos="0 0 0.4" size="0.1" rgba="0.9 0.7 0.5 1"/>
+      <body name="left_thigh_5" pos="-0.08 0 0">
+        <joint name="left_hip_5" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="left_thigh_geom_5" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.4 0.3 0.7 1"/>
+        <body name="left_shin_5" pos="0 0 -0.3">
+          <joint name="left_knee_5" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="left_shin_geom_5" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.4 0.3 0.7 1"/>
+          <body name="left_foot_5" pos="0 0 -0.3">
+            <joint name="left_ankle_5" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="left_foot_geom_5" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.3 0.2 0.5 1"/>
+          </body>
+        </body>
+      </body>
+      <body name="right_thigh_5" pos="0.08 0 0">
+        <joint name="right_hip_5" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="right_thigh_geom_5" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.4 0.3 0.7 1"/>
+        <body name="right_shin_5" pos="0 0 -0.3">
+          <joint name="right_knee_5" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="right_shin_geom_5" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.4 0.3 0.7 1"/>
+          <body name="right_foot_5" pos="0 0 -0.3">
+            <joint name="right_ankle_5" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="right_foot_geom_5" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.3 0.2 0.5 1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- Robot 6 -->
+    <body name="torso_6" pos="1.5 0 0.8">
+      <freejoint name="root_6"/>
+      <geom name="torso_geom_6" type="capsule" fromto="0 0 0 0 0 0.3" size="0.08" rgba="0.9 0.3 0.9 1"/>
+      <site name="torso_site_6" pos="0 0 0.15"/>
+      <geom name="head_6" type="sphere" pos="0 0 0.4" size="0.1" rgba="0.9 0.7 0.5 1"/>
+      <body name="left_thigh_6" pos="-0.08 0 0">
+        <joint name="left_hip_6" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="left_thigh_geom_6" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.7 0.3 0.7 1"/>
+        <body name="left_shin_6" pos="0 0 -0.3">
+          <joint name="left_knee_6" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="left_shin_geom_6" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.7 0.3 0.7 1"/>
+          <body name="left_foot_6" pos="0 0 -0.3">
+            <joint name="left_ankle_6" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="left_foot_geom_6" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.5 0.2 0.5 1"/>
+          </body>
+        </body>
+      </body>
+      <body name="right_thigh_6" pos="0.08 0 0">
+        <joint name="right_hip_6" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="right_thigh_geom_6" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.7 0.3 0.7 1"/>
+        <body name="right_shin_6" pos="0 0 -0.3">
+          <joint name="right_knee_6" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="right_shin_geom_6" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.7 0.3 0.7 1"/>
+          <body name="right_foot_6" pos="0 0 -0.3">
+            <joint name="right_ankle_6" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="right_foot_geom_6" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.5 0.2 0.5 1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- Robot 7 -->
+    <body name="torso_7" pos="2.5 0 0.8">
+      <freejoint name="root_7"/>
+      <geom name="torso_geom_7" type="capsule" fromto="0 0 0 0 0 0.3" size="0.08" rgba="0.3 0.9 0.9 1"/>
+      <site name="torso_site_7" pos="0 0 0.15"/>
+      <geom name="head_7" type="sphere" pos="0 0 0.4" size="0.1" rgba="0.9 0.7 0.5 1"/>
+      <body name="left_thigh_7" pos="-0.08 0 0">
+        <joint name="left_hip_7" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="left_thigh_geom_7" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.3 0.7 0.7 1"/>
+        <body name="left_shin_7" pos="0 0 -0.3">
+          <joint name="left_knee_7" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="left_shin_geom_7" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.3 0.7 0.7 1"/>
+          <body name="left_foot_7" pos="0 0 -0.3">
+            <joint name="left_ankle_7" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="left_foot_geom_7" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.2 0.5 0.5 1"/>
+          </body>
+        </body>
+      </body>
+      <body name="right_thigh_7" pos="0.08 0 0">
+        <joint name="right_hip_7" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="right_thigh_geom_7" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.3 0.7 0.7 1"/>
+        <body name="right_shin_7" pos="0 0 -0.3">
+          <joint name="right_knee_7" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="right_shin_geom_7" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.3 0.7 0.7 1"/>
+          <body name="right_foot_7" pos="0 0 -0.3">
+            <joint name="right_ankle_7" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="right_foot_geom_7" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.2 0.5 0.5 1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- Robot 8 -->
+    <body name="torso_8" pos="3.5 0 0.8">
+      <freejoint name="root_8"/>
+      <geom name="torso_geom_8" type="capsule" fromto="0 0 0 0 0 0.3" size="0.08" rgba="0.7 0.7 0.7 1"/>
+      <site name="torso_site_8" pos="0 0 0.15"/>
+      <geom name="head_8" type="sphere" pos="0 0 0.4" size="0.1" rgba="0.9 0.7 0.5 1"/>
+      <body name="left_thigh_8" pos="-0.08 0 0">
+        <joint name="left_hip_8" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="left_thigh_geom_8" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.5 0.5 0.5 1"/>
+        <body name="left_shin_8" pos="0 0 -0.3">
+          <joint name="left_knee_8" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="left_shin_geom_8" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.5 0.5 0.5 1"/>
+          <body name="left_foot_8" pos="0 0 -0.3">
+            <joint name="left_ankle_8" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="left_foot_geom_8" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.3 0.3 0.3 1"/>
+          </body>
+        </body>
+      </body>
+      <body name="right_thigh_8" pos="0.08 0 0">
+        <joint name="right_hip_8" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="right_thigh_geom_8" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.5 0.5 0.5 1"/>
+        <body name="right_shin_8" pos="0 0 -0.3">
+          <joint name="right_knee_8" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="right_shin_geom_8" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.5 0.5 0.5 1"/>
+          <body name="right_foot_8" pos="0 0 -0.3">
+            <joint name="right_ankle_8" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="right_foot_geom_8" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.3 0.3 0.3 1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- Robot 9 -->
+    <body name="torso_9" pos="4.5 0 0.8">
+      <freejoint name="root_9"/>
+      <geom name="torso_geom_9" type="capsule" fromto="0 0 0 0 0 0.3" size="0.08" rgba="1.0 0.8 0.2 1"/>
+      <site name="torso_site_9" pos="0 0 0.15"/>
+      <geom name="head_9" type="sphere" pos="0 0 0.4" size="0.1" rgba="0.9 0.7 0.5 1"/>
+      <body name="left_thigh_9" pos="-0.08 0 0">
+        <joint name="left_hip_9" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="left_thigh_geom_9" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.8 0.6 0.2 1"/>
+        <body name="left_shin_9" pos="0 0 -0.3">
+          <joint name="left_knee_9" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="left_shin_geom_9" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.8 0.6 0.2 1"/>
+          <body name="left_foot_9" pos="0 0 -0.3">
+            <joint name="left_ankle_9" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="left_foot_geom_9" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.6 0.4 0.1 1"/>
+          </body>
+        </body>
+      </body>
+      <body name="right_thigh_9" pos="0.08 0 0">
+        <joint name="right_hip_9" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="right_thigh_geom_9" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.05" rgba="0.8 0.6 0.2 1"/>
+        <body name="right_shin_9" pos="0 0 -0.3">
+          <joint name="right_knee_9" type="hinge" axis="0 1 0" range="-120 0"/>
+          <geom name="right_shin_geom_9" type="capsule" fromto="0 0 0 0 0 -0.3" size="0.04" rgba="0.8 0.6 0.2 1"/>
+          <body name="right_foot_9" pos="0 0 -0.3">
+            <joint name="right_ankle_9" type="hinge" axis="0 1 0" range="-45 45"/>
+            <geom name="right_foot_geom_9" type="box" pos="0.03 0 -0.02" size="0.1 0.04 0.02" rgba="0.6 0.4 0.1 1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  
+  <actuator>
+    <!-- Robot 0 motors -->
+    <motor name="left_hip_motor_0" joint="left_hip_0" gear="100"/>
+    <motor name="left_knee_motor_0" joint="left_knee_0" gear="100"/>
+    <motor name="left_ankle_motor_0" joint="left_ankle_0" gear="50"/>
+    <motor name="right_hip_motor_0" joint="right_hip_0" gear="100"/>
+    <motor name="right_knee_motor_0" joint="right_knee_0" gear="100"/>
+    <motor name="right_ankle_motor_0" joint="right_ankle_0" gear="50"/>
+    <!-- Robot 1 motors -->
+    <motor name="left_hip_motor_1" joint="left_hip_1" gear="100"/>
+    <motor name="left_knee_motor_1" joint="left_knee_1" gear="100"/>
+    <motor name="left_ankle_motor_1" joint="left_ankle_1" gear="50"/>
+    <motor name="right_hip_motor_1" joint="right_hip_1" gear="100"/>
+    <motor name="right_knee_motor_1" joint="right_knee_1" gear="100"/>
+    <motor name="right_ankle_motor_1" joint="right_ankle_1" gear="50"/>
+    <!-- Robot 2 motors -->
+    <motor name="left_hip_motor_2" joint="left_hip_2" gear="100"/>
+    <motor name="left_knee_motor_2" joint="left_knee_2" gear="100"/>
+    <motor name="left_ankle_motor_2" joint="left_ankle_2" gear="50"/>
+    <motor name="right_hip_motor_2" joint="right_hip_2" gear="100"/>
+    <motor name="right_knee_motor_2" joint="right_knee_2" gear="100"/>
+    <motor name="right_ankle_motor_2" joint="right_ankle_2" gear="50"/>
+    <!-- Robot 3 motors -->
+    <motor name="left_hip_motor_3" joint="left_hip_3" gear="100"/>
+    <motor name="left_knee_motor_3" joint="left_knee_3" gear="100"/>
+    <motor name="left_ankle_motor_3" joint="left_ankle_3" gear="50"/>
+    <motor name="right_hip_motor_3" joint="right_hip_3" gear="100"/>
+    <motor name="right_knee_motor_3" joint="right_knee_3" gear="100"/>
+    <motor name="right_ankle_motor_3" joint="right_ankle_3" gear="50"/>
+    <!-- Robot 4 motors -->
+    <motor name="left_hip_motor_4" joint="left_hip_4" gear="100"/>
+    <motor name="left_knee_motor_4" joint="left_knee_4" gear="100"/>
+    <motor name="left_ankle_motor_4" joint="left_ankle_4" gear="50"/>
+    <motor name="right_hip_motor_4" joint="right_hip_4" gear="100"/>
+    <motor name="right_knee_motor_4" joint="right_knee_4" gear="100"/>
+    <motor name="right_ankle_motor_4" joint="right_ankle_4" gear="50"/>
+    <!-- Robot 5 motors -->
+    <motor name="left_hip_motor_5" joint="left_hip_5" gear="100"/>
+    <motor name="left_knee_motor_5" joint="left_knee_5" gear="100"/>
+    <motor name="left_ankle_motor_5" joint="left_ankle_5" gear="50"/>
+    <motor name="right_hip_motor_5" joint="right_hip_5" gear="100"/>
+    <motor name="right_knee_motor_5" joint="right_knee_5" gear="100"/>
+    <motor name="right_ankle_motor_5" joint="right_ankle_5" gear="50"/>
+    <!-- Robot 6 motors -->
+    <motor name="left_hip_motor_6" joint="left_hip_6" gear="100"/>
+    <motor name="left_knee_motor_6" joint="left_knee_6" gear="100"/>
+    <motor name="left_ankle_motor_6" joint="left_ankle_6" gear="50"/>
+    <motor name="right_hip_motor_6" joint="right_hip_6" gear="100"/>
+    <motor name="right_knee_motor_6" joint="right_knee_6" gear="100"/>
+    <motor name="right_ankle_motor_6" joint="right_ankle_6" gear="50"/>
+    <!-- Robot 7 motors -->
+    <motor name="left_hip_motor_7" joint="left_hip_7" gear="100"/>
+    <motor name="left_knee_motor_7" joint="left_knee_7" gear="100"/>
+    <motor name="left_ankle_motor_7" joint="left_ankle_7" gear="50"/>
+    <motor name="right_hip_motor_7" joint="right_hip_7" gear="100"/>
+    <motor name="right_knee_motor_7" joint="right_knee_7" gear="100"/>
+    <motor name="right_ankle_motor_7" joint="right_ankle_7" gear="50"/>
+    <!-- Robot 8 motors -->
+    <motor name="left_hip_motor_8" joint="left_hip_8" gear="100"/>
+    <motor name="left_knee_motor_8" joint="left_knee_8" gear="100"/>
+    <motor name="left_ankle_motor_8" joint="left_ankle_8" gear="50"/>
+    <motor name="right_hip_motor_8" joint="right_hip_8" gear="100"/>
+    <motor name="right_knee_motor_8" joint="right_knee_8" gear="100"/>
+    <motor name="right_ankle_motor_8" joint="right_ankle_8" gear="50"/>
+    <!-- Robot 9 motors -->
+    <motor name="left_hip_motor_9" joint="left_hip_9" gear="100"/>
+    <motor name="left_knee_motor_9" joint="left_knee_9" gear="100"/>
+    <motor name="left_ankle_motor_9" joint="left_ankle_9" gear="50"/>
+    <motor name="right_hip_motor_9" joint="right_hip_9" gear="100"/>
+    <motor name="right_knee_motor_9" joint="right_knee_9" gear="100"/>
+    <motor name="right_ankle_motor_9" joint="right_ankle_9" gear="50"/>
+  </actuator>
+</mujoco>
