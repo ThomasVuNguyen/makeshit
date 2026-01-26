@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BeeWalker Training Dashboard</title>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a25;
+            --accent: #ff6b2b;
+            --accent-glow: rgba(255, 107, 43, 0.3);
+            --text-primary: #ffffff;
+            --text-secondary: #888899;
+            --success: #00d68f;
+            --warning: #ffaa00;
+            --border: #2a2a35;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            grid-template-rows: auto 1fr auto;
+            gap: 20px;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        header {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 25px;
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent), #ff8f5a);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .logo h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent), #ff8f5a);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--bg-secondary);
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.paused {
+            background: var(--warning);
+            animation: none;
+        }
+
+        .status-dot.stopped {
+            background: #ff4757;
+            animation: none;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .main-view {
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .view-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .view-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .simulation-view {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-secondary);
+            position: relative;
+        }
+
+        #simulation-frame {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 8px;
+        }
+
+        .placeholder {
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        .placeholder-icon {
+            font-size: 4rem;
+            margin-bottom: 15px;
+        }
+
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            padding: 20px;
+        }
+
+        .card-title {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 15px;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .metric {
+            background: var(--bg-secondary);
+            padding: 15px;
+            border-radius: 12px;
+        }
+
+        .metric-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .metric-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .chart-container {
+            height: 200px;
+            position: relative;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), #ff8f5a);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px var(--accent-glow);
+        }
+
+        .btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border);
+        }
+
+        .btn-danger {
+            background: #ff4757;
+            color: white;
+        }
+
+        footer {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 15px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .reward-history {
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+
+        .history-ep {
+            color: var(--text-secondary);
+        }
+
+        .history-reward {
+            color: var(--success);
+            font-weight: 600;
+        }
+
+        .history-reward.negative {
+            color: #ff4757;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="dashboard">
+        <header>
+            <div class="logo">
+                <div class="logo-icon">🐝</div>
+                <h1>BeeWalker Training</h1>
+            </div>
+            <div class="status-badge">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="status-text">Connecting...</span>
+            </div>
+        </header>
+
+        <div class="main-view">
+            <div class="view-header">
+                <span class="view-title">🎮 Simulation View</span>
+                <span id="fps-counter" style="color: var(--text-secondary); font-size: 0.85rem;">-- FPS</span>
+            </div>
+            <div class="simulation-view">
+                <img id="simulation-frame" style="display: none;" alt="Simulation Frame">
+                <div class="placeholder" id="placeholder">
+                    <div class="placeholder-icon">🤖</div>
+                    <p>Waiting for simulation frames...</p>
+                    <p style="font-size: 0.85rem; margin-top: 8px;">Training will start momentarily</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div class="card">
+                <div class="card-title">📊 Training Metrics</div>
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <div class="metric-value" id="timesteps">0</div>
+                        <div class="metric-label">Timesteps</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="episodes">0</div>
+                        <div class="metric-label">Episodes</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="mean-reward">0.00</div>
+                        <div class="metric-label">Mean Reward</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="best-reward">--</div>
+                        <div class="metric-label">Best Reward</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">📈 Reward History</div>
+                <div class="chart-container">
+                    <canvas id="reward-chart"></canvas>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">🎛️ Controls</div>
+                <div class="controls">
+                    <button class="btn btn-secondary" id="pause-btn" onclick="togglePause()">
+                        ⏸️ Pause
+                    </button>
+                    <button class="btn btn-danger" id="stop-btn" onclick="stopTraining()">
+                        ⏹️ Stop
+                    </button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">📝 Recent Episodes</div>
+                <div class="reward-history" id="reward-history">
+                    <div class="history-item">
+                        <span class="history-ep">Waiting for episodes...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Robot Model View (Static) -->
+            <div class="card" id="design-card">
+                <div class="card-title"
+                    style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;"
+                    onclick="toggleDesign()">
+                    <span>🤖 Robot Model</span>
+                    <span id="design-toggle">▼</span>
+                </div>
+                <div id="design-content" style="display: block;">
+                    <div style="background: var(--bg-secondary); border-radius: 8px; padding: 10px; margin-top: 10px;">
+                        <!-- Static Preview Image -->
+                        <div style="text-align: center; margin-bottom: 12px;">
+                            <img src="/static/beewalker_preview.png"
+                                style="width: 100%; max-width: 280px; border-radius: 8px; border: 1px solid var(--border);"
+                                alt="BeeWalker Robot Model">
+                        </div>
+
+                        <!-- Specs grid -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.7rem;">
+                            <div style="background: var(--bg-primary); padding: 8px; border-radius: 6px;">
+                                <div style="color: var(--accent); font-weight: 600;">Joint</div>
+                                <div style="color: var(--text-secondary);">62×49×26mm</div>
+                            </div>
+                            <div style="background: var(--bg-primary); padding: 8px; border-radius: 6px;">
+                                <div style="color: var(--accent); font-weight: 600;">Servo</div>
+                                <div style="color: var(--text-secondary);">MG996R ±90°</div>
+                            </div>
+                            <div style="background: var(--bg-primary); padding: 8px; border-radius: 6px;">
+                                <div style="color: var(--accent); font-weight: 600;">DOF</div>
+                                <div style="color: var(--text-secondary);">6 (3/leg)</div>
+                            </div>
+                            <div style="background: var(--bg-primary); padding: 8px; border-radius: 6px;">
+                                <div style="color: var(--accent); font-weight: 600;">Material</div>
+                                <div style="color: var(--text-secondary);">PLA</div>
+                            </div>
+                        </div>
+
+                        <!-- Color legend -->
+                        <div
+                            style="margin-top: 10px; display: flex; justify-content: center; gap: 12px; font-size: 0.65rem;">
+                            <div style="display: flex; align-items: center; gap: 3px;">
+                                <div style="width: 10px; height: 10px; background: #666; border-radius: 2px;"></div>
+                                <span style="color: var(--text-secondary);">Bracket</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 3px;">
+                                <div style="width: 10px; height: 10px; background: #ffbf33; border-radius: 2px;"></div>
+                                <span style="color: var(--text-secondary);">Body</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 3px;">
+                                <div style="width: 10px; height: 10px; background: #3366cc; border-radius: 2px;"></div>
+                                <span style="color: var(--text-secondary);">Servo</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            BeeWalker RL Training System • MuJoCo + Stable Baselines3
+        </footer>
+    </div>
+
+    <script>
+        const socket = io();
+        let isPaused = false;
+        let rewardData = [];
+        let episodeLabels = [];
+        let frameCount = 0;
+        let lastFrameTime = Date.now();
+
+        // Initialize chart
+        const ctx = document.getElementById('reward-chart').getContext('2d');
+        const rewardChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: episodeLabels,
+                datasets: [{
+                    label: 'Episode Reward',
+                    data: rewardData,
+                    borderColor: '#ff6b2b',
+                    backgroundColor: 'rgba(255, 107, 43, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        display: false
+                    },
+                    y: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.05)'
+                        },
+                        ticks: {
+                            color: '#888899'
+                        }
+                    }
+                }
+            }
+        });
+
+        socket.on('connect', () => {
+            updateStatus('Training', 'running');
+        });
+
+        socket.on('disconnect', () => {
+            updateStatus('Disconnected', 'stopped');
+        });
+
+        socket.on('metrics_update', (data) => {
+            document.getElementById('timesteps').textContent = formatNumber(data.total_timesteps || 0);
+            document.getElementById('episodes').textContent = data.episodes || 0;
+            document.getElementById('mean-reward').textContent = (data.mean_reward || 0).toFixed(2);
+
+            if (data.best_reward && data.best_reward !== -Infinity) {
+                document.getElementById('best-reward').textContent = data.best_reward.toFixed(2);
+            }
+
+            // Update chart
+            if (data.episode_reward !== undefined && data.episodes > rewardData.length) {
+                rewardData.push(data.episode_reward);
+                episodeLabels.push(data.episodes);
+
+                // Keep last 100 episodes
+                if (rewardData.length > 100) {
+                    rewardData.shift();
+                    episodeLabels.shift();
+                }
+
+                rewardChart.update('none');
+
+                // Update history
+                addHistoryItem(data.episodes, data.episode_reward);
+            }
+
+            // Update status
+            if (data.is_paused) {
+                updateStatus('Paused', 'paused');
+            } else if (data.is_running) {
+                updateStatus('Training', 'running');
+            } else {
+                updateStatus('Stopped', 'stopped');
+            }
+        });
+
+        socket.on('frame_update', (data) => {
+            const frame = document.getElementById('simulation-frame');
+            const placeholder = document.getElementById('placeholder');
+
+            frame.src = 'data:image/jpeg;base64,' + data.frame;
+            frame.style.display = 'block';
+            placeholder.style.display = 'none';
+
+            // Calculate FPS
+            frameCount++;
+            const now = Date.now();
+            if (now - lastFrameTime >= 1000) {
+                document.getElementById('fps-counter').textContent = frameCount + ' FPS';
+                frameCount = 0;
+                lastFrameTime = now;
+            }
+        });
+
+        function updateStatus(text, state) {
+            document.getElementById('status-text').textContent = text;
+            const dot = document.getElementById('status-dot');
+            dot.className = 'status-dot';
+            if (state === 'paused') dot.classList.add('paused');
+            if (state === 'stopped') dot.classList.add('stopped');
+        }
+
+        function formatNumber(num) {
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toString();
+        }
+
+        function togglePause() {
+            isPaused = !isPaused;
+            const btn = document.getElementById('pause-btn');
+
+            if (isPaused) {
+                socket.emit('pause_training');
+                btn.innerHTML = '▶️ Resume';
+            } else {
+                socket.emit('resume_training');
+                btn.innerHTML = '⏸️ Pause';
+            }
+        }
+
+        function stopTraining() {
+            if (confirm('Are you sure you want to stop training?')) {
+                socket.emit('stop_training');
+            }
+        }
+
+        function addHistoryItem(episode, reward) {
+            const history = document.getElementById('reward-history');
+            const item = document.createElement('div');
+            item.className = 'history-item';
+            item.innerHTML = `
+                <span class="history-ep">Episode ${episode}</span>
+                <span class="history-reward ${reward < 0 ? 'negative' : ''}">${reward.toFixed(2)}</span>
+            `;
+            history.insertBefore(item, history.firstChild);
+
+            // Keep last 20 items
+            while (history.children.length > 20) {
+                history.removeChild(history.lastChild);
+            }
+        }
+
+        function toggleDesign() {
+            const content = document.getElementById('design-content');
+            const toggle = document.getElementById('design-toggle');
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                toggle.textContent = '▼';
+            } else {
+                content.style.display = 'none';
+                toggle.textContent = '▶';
+            }
+        }
+    </script>
+</body>
+
+</html>

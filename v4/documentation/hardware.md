@@ -1,0 +1,3 @@
+- Raspberry Pi Pico RP2040
+- MG996R Servo for joint control
+- PCA9685 16-channel 12-bit PWM/Servo driver
