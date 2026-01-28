@@ -17,11 +17,13 @@
     <texture type="skybox" builtin="gradient" rgb1="0.4 0.6 0.8" rgb2="0.1 0.1 0.2" width="512" height="512"/>
     <texture type="2d" name="groundplane" builtin="checker" rgb1="0.25 0.35 0.4" rgb2="0.15 0.25 0.3" width="512" height="512"/>
     <material name="groundplane" texture="groundplane" texrepeat="10 10"/>
-    <!-- PLA materials matching the CAD colors exactly -->
-    <material name="pla_yellow" rgba="1 0.75 0.2 1"/>
-    <material name="pla_blue" rgba="0.25 0.45 0.85 1"/>
-    <material name="pla_gray" rgba="0.65 0.65 0.65 1"/>
-    <material name="pla_orange_ring" rgba="1 0.5 0.15 1"/>
+    <!-- Smooth plastic materials -->
+    <material name="shell_white" rgba="0.95 0.95 0.95 1" specular="0.5" shininess="0.5"/>
+    <material name="shell_light" rgba="0.82 0.84 0.86 1" specular="0.5" shininess="0.4"/>
+    <material name="shell_mid" rgba="0.55 0.57 0.6 1" specular="0.4" shininess="0.5"/>
+    <material name="shell_dark" rgba="0.25 0.27 0.3 1" specular="0.3" shininess="0.6"/>
+    <material name="joint_ring" rgba="0.18 0.18 0.2 1" specular="0.2" shininess="0.8"/>
+    <material name="screw_metal" rgba="0.35 0.35 0.38 1" specular="0.8" shininess="0.9"/>
   </asset>
   
   <worldbody>
@@ -30,78 +32,83 @@
     <light directional="true" pos="1 -1 3" dir="-0.2 0.2 -1" diffuse="1 1 1"/>
     <light directional="true" pos="-1 1 2" dir="0.2 -0.2 -1" diffuse="0.5 0.5 0.5"/>
     
-    <!-- Main tracking camera -->
     <camera name="track" mode="trackcom" pos="0 -0.8 0.5" xyaxes="1 0 0 0 0.5 0.87"/>
-    
-    <!-- Fixed reference camera for model preview -->
     <camera name="reference" pos="0.5 -0.5 0.5" xyaxes="0.7 0.7 0 -0.3 0.3 0.9"/>
     
-    <!-- BeeWalker Robot -->
-    <!-- Based on BeeBot Joint v2.1: Horizontal servo body with bracket on top -->
-    <body name="torso" pos="0 0 0.35">
+    <!-- BeeWalker Robot - Bulbous egg-shaped servo housing design -->
+    <body name="torso" pos="0 0 0.38">
       <freejoint name="root"/>
       <site name="torso_site" pos="0 0 0" size="0.01"/>
-      <!-- Main torso body -->
-      <geom name="torso_geom" type="box" size="0.08 0.035 0.02" material="pla_gray"/>
+      
+      <!-- Main torso - rectangular body with rounded edges -->
+      <geom name="torso_main" type="box" size="0.10 0.05 0.025" material="shell_white"/>
+      <geom name="torso_accent" type="box" pos="0 0 0.018" size="0.08 0.04 0.01" material="shell_light"/>
+      <!-- Bottom accent strip -->
+      <geom name="torso_bottom" type="box" pos="0 0 -0.022" size="0.09 0.045 0.005" material="shell_dark"/>
       
       <!-- ========== RIGHT LEG ========== -->
-      <!-- Hip Joint - BeeBot Joint v2.1: joints bend FORWARD/BACKWARD (X-axis rotation) like human legs -->
-      <body name="right_hip" pos="0.06 0 -0.035">
-        <!-- X-axis rotation = forward/backward bending like human knee -->
+      <!-- Hip segment - large oval/egg shaped housing -->
+      <body name="right_hip" pos="0.07 0 -0.045">
         <joint name="right_hip_joint" type="hinge" axis="1 0 0" range="-90 90"/>
-        <!-- Yellow cylindrical servo body (49mm long, 24mm radius) - oriented vertically for leg chain -->
-        <geom name="right_hip_body" type="cylinder" pos="0 0 0" size="0.024 0.0245" material="pla_yellow"/>
-        <!-- Gray mounting bracket on TOP of cylinder -->
-        <geom name="right_hip_bracket" type="box" pos="0 0 0.037" size="0.013 0.0136 0.0145" material="pla_gray"/>
-        <!-- Orange ring at BOTTOM (where next joint connects) -->
-        <geom name="right_hip_ring" type="cylinder" pos="0 0 -0.027" size="0.026 0.002" material="pla_orange_ring"/>
-        <!-- Blue servo disk at BOTTOM - this is the rotating output that connects to next joint -->
-        <geom name="right_hip_servo" type="cylinder" pos="0 0 -0.031" size="0.024 0.004" material="pla_blue"/>
+        <!-- Main bulbous housing - egg shape using ellipsoid -->
+        <geom name="right_hip_shell_top" type="ellipsoid" pos="0 0 0" size="0.038 0.038 0.045" material="shell_light"/>
+        <!-- Joint connection ring at top -->
+        <geom name="right_hip_ring_top" type="cylinder" pos="0 0 0.042" size="0.03 0.006" material="joint_ring"/>
+        <!-- Bottom cap for transition -->
+        <geom name="right_hip_cap" type="ellipsoid" pos="0 0 -0.04" size="0.032 0.032 0.018" material="shell_mid"/>
+        <!-- Screw details on side -->
+        <geom name="right_hip_screw" type="cylinder" pos="0.035 0 0" size="0.006 0.002" euler="0 90 0" material="screw_metal"/>
         
-        <!-- Knee Joint - attaches at the blue disk position -->
-        <body name="right_thigh" pos="0 0 -0.062">
+        <!-- Thigh segment - bulbous oval -->
+        <body name="right_thigh" pos="0 0 -0.095">
           <joint name="right_knee_joint" type="hinge" axis="1 0 0" range="-90 90"/>
-          <geom name="right_thigh_body" type="cylinder" pos="0 0 0" size="0.024 0.0245" material="pla_yellow"/>
-          <geom name="right_knee_bracket" type="box" pos="0 0 0.037" size="0.013 0.0136 0.0145" material="pla_gray"/>
-          <geom name="right_knee_ring" type="cylinder" pos="0 0 -0.027" size="0.026 0.002" material="pla_orange_ring"/>
-          <geom name="right_knee_servo" type="cylinder" pos="0 0 -0.031" size="0.024 0.004" material="pla_blue"/>
+          <geom name="right_thigh_shell" type="ellipsoid" pos="0 0 0" size="0.038 0.038 0.045" material="shell_light"/>
+          <geom name="right_knee_ring_top" type="cylinder" pos="0 0 0.042" size="0.03 0.006" material="joint_ring"/>
+          <geom name="right_thigh_cap" type="ellipsoid" pos="0 0 -0.04" size="0.032 0.032 0.018" material="shell_mid"/>
+          <geom name="right_thigh_screw" type="cylinder" pos="0.035 0 0" size="0.006 0.002" euler="0 90 0" material="screw_metal"/>
           
-          <!-- Ankle Joint -->
-          <body name="right_shin" pos="0 0 -0.062">
+          <!-- Shin segment - bulbous oval -->
+          <body name="right_shin" pos="0 0 -0.095">
             <joint name="right_ankle_joint" type="hinge" axis="1 0 0" range="-90 90"/>
-            <geom name="right_shin_body" type="cylinder" pos="0 0 0" size="0.024 0.0245" material="pla_yellow"/>
-            <geom name="right_ankle_bracket" type="box" pos="0 0 0.037" size="0.013 0.0136 0.0145" material="pla_gray"/>
-            <geom name="right_ankle_ring" type="cylinder" pos="0 0 -0.027" size="0.026 0.002" material="pla_orange_ring"/>
-            <geom name="right_ankle_servo" type="cylinder" pos="0 0 -0.031" size="0.024 0.004" material="pla_blue"/>
-            <!-- Foot -->
-            <geom name="right_foot" type="box" pos="0.02 0 -0.045" size="0.035 0.02 0.008" material="pla_gray"/>
+            <geom name="right_shin_shell" type="ellipsoid" pos="0 0 0" size="0.038 0.038 0.045" material="shell_light"/>
+            <geom name="right_ankle_ring_top" type="cylinder" pos="0 0 0.042" size="0.03 0.006" material="joint_ring"/>
+            <geom name="right_shin_cap" type="ellipsoid" pos="0 0 -0.04" size="0.032 0.032 0.018" material="shell_mid"/>
+            <geom name="right_shin_screw" type="cylinder" pos="0.035 0 0" size="0.006 0.002" euler="0 90 0" material="screw_metal"/>
+            
+            <!-- Foot - curved shoe shape -->
+            <geom name="right_foot_base" type="ellipsoid" pos="0.015 0 -0.07" size="0.045 0.025 0.018" material="shell_dark"/>
+            <geom name="right_foot_toe" type="sphere" pos="0.05 0 -0.072" size="0.018" material="shell_dark"/>
+            <geom name="right_foot_heel" type="sphere" pos="-0.02 0 -0.072" size="0.016" material="shell_dark"/>
           </body>
         </body>
       </body>
       
       <!-- ========== LEFT LEG ========== -->
-      <body name="left_hip" pos="-0.06 0 -0.035">
+      <body name="left_hip" pos="-0.07 0 -0.045">
         <joint name="left_hip_joint" type="hinge" axis="1 0 0" range="-90 90"/>
-        <geom name="left_hip_body" type="cylinder" pos="0 0 0" size="0.024 0.0245" material="pla_yellow"/>
-        <geom name="left_hip_bracket" type="box" pos="0 0 0.037" size="0.013 0.0136 0.0145" material="pla_gray"/>
-        <geom name="left_hip_ring" type="cylinder" pos="0 0 -0.027" size="0.026 0.002" material="pla_orange_ring"/>
-        <geom name="left_hip_servo" type="cylinder" pos="0 0 -0.031" size="0.024 0.004" material="pla_blue"/>
+        <geom name="left_hip_shell_top" type="ellipsoid" pos="0 0 0" size="0.038 0.038 0.045" material="shell_light"/>
+        <geom name="left_hip_ring_top" type="cylinder" pos="0 0 0.042" size="0.03 0.006" material="joint_ring"/>
+        <geom name="left_hip_cap" type="ellipsoid" pos="0 0 -0.04" size="0.032 0.032 0.018" material="shell_mid"/>
+        <geom name="left_hip_screw" type="cylinder" pos="-0.035 0 0" size="0.006 0.002" euler="0 90 0" material="screw_metal"/>
         
-        <body name="left_thigh" pos="0 0 -0.062">
+        <body name="left_thigh" pos="0 0 -0.095">
           <joint name="left_knee_joint" type="hinge" axis="1 0 0" range="-90 90"/>
-          <geom name="left_thigh_body" type="cylinder" pos="0 0 0" size="0.024 0.0245" material="pla_yellow"/>
-          <geom name="left_knee_bracket" type="box" pos="0 0 0.037" size="0.013 0.0136 0.0145" material="pla_gray"/>
-          <geom name="left_knee_ring" type="cylinder" pos="0 0 -0.027" size="0.026 0.002" material="pla_orange_ring"/>
-          <geom name="left_knee_servo" type="cylinder" pos="0 0 -0.031" size="0.024 0.004" material="pla_blue"/>
+          <geom name="left_thigh_shell" type="ellipsoid" pos="0 0 0" size="0.038 0.038 0.045" material="shell_light"/>
+          <geom name="left_knee_ring_top" type="cylinder" pos="0 0 0.042" size="0.03 0.006" material="joint_ring"/>
+          <geom name="left_thigh_cap" type="ellipsoid" pos="0 0 -0.04" size="0.032 0.032 0.018" material="shell_mid"/>
+          <geom name="left_thigh_screw" type="cylinder" pos="-0.035 0 0" size="0.006 0.002" euler="0 90 0" material="screw_metal"/>
           
-          <body name="left_shin" pos="0 0 -0.062">
+          <body name="left_shin" pos="0 0 -0.095">
             <joint name="left_ankle_joint" type="hinge" axis="1 0 0" range="-90 90"/>
-            <geom name="left_shin_body" type="cylinder" pos="0 0 0" size="0.024 0.0245" material="pla_yellow"/>
-            <geom name="left_ankle_bracket" type="box" pos="0 0 0.037" size="0.013 0.0136 0.0145" material="pla_gray"/>
-            <geom name="left_ankle_ring" type="cylinder" pos="0 0 -0.027" size="0.026 0.002" material="pla_orange_ring"/>
-            <geom name="left_ankle_servo" type="cylinder" pos="0 0 -0.031" size="0.024 0.004" material="pla_blue"/>
+            <geom name="left_shin_shell" type="ellipsoid" pos="0 0 0" size="0.038 0.038 0.045" material="shell_light"/>
+            <geom name="left_ankle_ring_top" type="cylinder" pos="0 0 0.042" size="0.03 0.006" material="joint_ring"/>
+            <geom name="left_shin_cap" type="ellipsoid" pos="0 0 -0.04" size="0.032 0.032 0.018" material="shell_mid"/>
+            <geom name="left_shin_screw" type="cylinder" pos="-0.035 0 0" size="0.006 0.002" euler="0 90 0" material="screw_metal"/>
+            
             <!-- Foot -->
-            <geom name="left_foot" type="box" pos="-0.02 0 -0.045" size="0.035 0.02 0.008" material="pla_gray"/>
+            <geom name="left_foot_base" type="ellipsoid" pos="-0.015 0 -0.07" size="0.045 0.025 0.018" material="shell_dark"/>
+            <geom name="left_foot_toe" type="sphere" pos="-0.05 0 -0.072" size="0.018" material="shell_dark"/>
+            <geom name="left_foot_heel" type="sphere" pos="0.02 0 -0.072" size="0.016" material="shell_dark"/>
           </body>
         </body>
       </body>
@@ -109,7 +116,6 @@
   </worldbody>
   
   <actuator>
-    <!-- MG996R servo motors - gear ratio for torque -->
     <motor name="right_hip_motor" joint="right_hip_joint" gear="50"/>
     <motor name="right_knee_motor" joint="right_knee_joint" gear="50"/>
     <motor name="right_ankle_motor" joint="right_ankle_joint" gear="50"/>
