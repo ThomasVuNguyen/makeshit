@@ -1,0 +1,5 @@
+# BeeWalker Robot - Python Dependencies
+# Install: pip install -r requirements.txt
+
+mujoco>=3.0.0
+numpy>=1.24.0
