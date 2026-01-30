@@ -1,205 +1,154 @@
 <mujoco model="beewalker">
-  <!-- 
-    BeeWalker Robot - MJCF Model Definition
-    Based on BeeBot Joint v2.1 design specs:
-    - Orange cylindrical servo housings
-    - Blue circular servo faces (facing FORWARD)
-    - Gray mounting brackets
-    - Rectangular feet
-    - 2 legs, 3 joints per leg
+  <!--
+    BeeWalker - Based on Gymnasium Walker2d
+    Reskinned with BeeBot Joint v2.1 servo geometry
+    
+    Structure: torso -> thigh (hip) -> leg (knee) -> foot (ankle)
+    3 DOF per leg, all hinges around Y axis (sagittal plane motion)
   -->
   
-  <compiler angle="degree" coordinate="local" inertiafromgeom="true"/>
-  
-  <option timestep="0.002" gravity="0 0 -9.81" integrator="RK4"/>
-  
-  <visual>
-    <global offwidth="1280" offheight="720"/>
-    <quality shadowsize="4096"/>
-    <headlight diffuse="0.6 0.6 0.6" specular="0.3 0.3 0.3"/>
-  </visual>
+  <compiler angle="degree" inertiafromgeom="true"/>
   
   <default>
-    <joint limited="true" damping="0.5" armature="0.01"/>
-    <geom contype="1" conaffinity="1" condim="3" friction="1 0.5 0.5"/>
-    <motor ctrllimited="true" ctrlrange="-1 1"/>
+    <joint armature="0.01" damping="0.1" limited="true"/>
+    <geom conaffinity="0" condim="3" contype="1" density="1250" friction="0.8 0.1 0.1"/>
+    <motor ctrllimited="true" ctrlrange="-1.0 1.0"/>
   </default>
   
+  <option integrator="RK4" timestep="0.002"/>
+  
   <asset>
-    <!-- Environment textures -->
-    <texture type="skybox" builtin="gradient" rgb1="0.5 0.7 0.9" rgb2="0.2 0.3 0.4" width="512" height="512"/>
-    <texture type="2d" name="groundplane" builtin="checker" rgb1="0.3 0.5 0.55" rgb2="0.2 0.4 0.45" width="512" height="512"/>
-    <material name="groundplane" texture="groundplane" texrepeat="10 10" reflectance="0.3"/>
+    <texture type="skybox" builtin="gradient" rgb1="0.4 0.6 0.8" rgb2="0.1 0.1 0.2" width="100" height="100"/>
+    <texture builtin="checker" height="100" name="texplane" rgb1="0.3 0.3 0.3" rgb2="0.4 0.4 0.4" type="2d" width="100"/>
+    <material name="MatPlane" reflectance="0.3" texrepeat="30 30" texture="texplane"/>
     
-    <!-- Robot materials matching design -->
-    <material name="servo_orange" rgba="0.95 0.6 0.15 1" specular="0.5" shininess="0.6"/>
-    <material name="servo_face_blue" rgba="0.15 0.35 0.65 1" specular="0.4" shininess="0.5"/>
-    <material name="bracket_gray" rgba="0.65 0.68 0.72 1" specular="0.5" shininess="0.4"/>
-    <material name="bracket_dark" rgba="0.35 0.38 0.42 1" specular="0.4" shininess="0.5"/>
-    <material name="foot_dark" rgba="0.3 0.32 0.35 1" specular="0.3" shininess="0.6"/>
-    <material name="foot_accent" rgba="0.2 0.8 0.3 1" specular="0.6" shininess="0.7"/>
-    <material name="screw_metal" rgba="0.2 0.22 0.25 1" specular="0.7" shininess="0.8"/>
+    <!-- BeeBot materials -->
+    <material name="servo_orange" rgba="0.95 0.55 0.1 1" specular="0.5" shininess="0.5"/>
+    <material name="servo_face_blue" rgba="0.2 0.35 0.6 1" specular="0.4" shininess="0.4"/>
+    <material name="bracket_gray" rgba="0.75 0.77 0.8 1" specular="0.3" shininess="0.3"/>
+    <material name="ring_orange" rgba="0.85 0.45 0.05 1" specular="0.6" shininess="0.6"/>
+    <material name="foot_green" rgba="0.2 0.7 0.3 1" specular="0.5" shininess="0.6"/>
   </asset>
   
   <worldbody>
-    <!-- Ground plane -->
-    <geom name="floor" type="plane" size="10 10 0.1" material="groundplane"/>
+    <light cutoff="100" diffuse="1 1 1" dir="0 0 -1.3" directional="true" pos="0 0 1.3" specular="0.1 0.1 0.1"/>
+    <geom conaffinity="1" condim="3" name="floor" pos="0 0 0" size="40 40 0.1" type="plane" material="MatPlane"/>
     
-    <!-- Lighting -->
-    <light directional="true" pos="2 -2 4" dir="-0.3 0.3 -0.9" diffuse="1 1 1"/>
-    <light directional="true" pos="-2 2 3" dir="0.3 -0.3 -0.9" diffuse="0.4 0.4 0.4"/>
-    
-    <!-- Cameras -->
-    <camera name="track" mode="trackcom" pos="0 -0.8 0.3" xyaxes="1 0 0 0 0.5 0.87"/>
-    <camera name="front" pos="0 -0.6 0.25" xyaxes="1 0 0 0 0.4 0.9"/>
-    <camera name="side" pos="0.6 0 0.25" xyaxes="0 1 0 -0.4 0 0.9"/>
-    
-    <!-- BeeWalker Robot Body -->
-    <body name="torso" pos="0 0 0.45">
-      <freejoint name="root"/>
-      <site name="torso_site" pos="0 0 0" size="0.01"/>
+    <!-- TORSO at height ~0.35m (scaled from Walker2d's 1.25m) -->
+    <body name="torso" pos="0 0 0.35">
+      <camera name="track" mode="trackcom" pos="0 -1 0" xyaxes="1 0 0 0 0 1"/>
       
-      <!-- Main torso - gray box matching design -->
-      <geom name="torso_main" type="box" size="0.08 0.04 0.035" material="bracket_gray"/>
-      <geom name="torso_top" type="box" pos="0 0 0.03" size="0.06 0.03 0.01" material="bracket_dark"/>
-      <geom name="torso_detail" type="box" pos="0 0.035 0" size="0.02 0.008 0.02" material="bracket_dark"/>
+      <!-- Root joints for free planar movement -->
+      <joint armature="0" axis="1 0 0" damping="0" limited="false" name="rootx" pos="0 0 -0.35" stiffness="0" type="slide"/>
+      <joint armature="0" axis="0 0 1" damping="0" limited="false" name="rootz" pos="0 0 -0.35" ref="0.35" stiffness="0" type="slide"/>
+      <joint armature="0" axis="0 1 0" damping="0" limited="false" name="rooty" pos="0 0 0" stiffness="0" type="hinge"/>
+      
+      <!-- Torso geometry -->
+      <geom name="torso_main" type="box" size="0.05 0.03 0.025" material="bracket_gray"/>
+      <geom name="torso_top" type="box" pos="0 0 0.022" size="0.04 0.025 0.005" rgba="0.4 0.42 0.45 1"/>
+      
       
       <!-- ========== RIGHT LEG ========== -->
-      <!-- Hip Joint - servo faces FRONT (-Y direction) -->
-      <body name="right_hip_yaw" pos="0.06 0 -0.04">
-        <joint name="right_hip_yaw_joint" type="hinge" axis="0 0 1" range="-45 45"/>
+      <body name="thigh" pos="0.035 0 -0.025">
+        <joint axis="0 -1 0" name="thigh_joint" pos="0 0 0" range="-90 90" type="hinge"/>
         
-        <!-- Hip mounting bracket -->
-        <geom name="right_hip_bracket" type="box" pos="0 0 0" size="0.02 0.015 0.02" material="bracket_gray"/>
+        <!-- Hip servo module -->
+        <geom name="r_hip_servo" type="cylinder" size="0.024 0.031" euler="0 90 0" material="servo_orange"/>
+        <geom name="r_hip_cap" type="box" pos="0 0 0.022" size="0.031 0.013 0.005" material="servo_orange"/>
+        <geom name="r_hip_face_r" type="cylinder" pos="0.033 0 0" size="0.019 0.003" euler="0 90 0" material="servo_face_blue"/>
+        <geom name="r_hip_face_l" type="cylinder" pos="-0.033 0 0" size="0.019 0.003" euler="0 90 0" material="servo_face_blue"/>
+        <geom name="r_hip_ring" type="cylinder" pos="0.036 0 0" size="0.027 0.004" euler="0 90 0" material="ring_orange" contype="0" conaffinity="0"/>
         
-        <!-- Hip Pitch Joint -->
-        <body name="right_hip" pos="0 0 -0.035">
-          <joint name="right_hip_joint" type="hinge" axis="1 0 0" range="-90 90"/>
+        <!-- Bracket down to knee -->
+        <geom name="r_hip_bracket" type="box" pos="0 0 -0.045" size="0.024 0.006 0.025" material="bracket_gray"/>
+        
+        <body name="leg" pos="0 0 -0.08">
+          <joint axis="0 -1 0" name="leg_joint" pos="0 0 0" range="-90 90" type="hinge"/>
           
-          <!-- Servo housing - orange cylinder, axis along X (faces front/back) -->
-          <geom name="right_hip_servo" type="cylinder" pos="0 0 0" size="0.031 0.027" euler="0 90 0" material="servo_orange"/>
-          <!-- Blue servo face - front facing (-Y) -->
-          <geom name="right_hip_face_front" type="cylinder" pos="0.028 0 0" size="0.024 0.003" euler="0 90 0" material="servo_face_blue"/>
-          <geom name="right_hip_face_back" type="cylinder" pos="-0.028 0 0" size="0.024 0.003" euler="0 90 0" material="servo_face_blue"/>
-          <!-- Screw details on blue face -->
-          <geom name="right_hip_screw1" type="cylinder" pos="0.030 0.015 0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-          <geom name="right_hip_screw2" type="cylinder" pos="0.030 -0.015 0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-          <geom name="right_hip_screw3" type="cylinder" pos="0.030 0.015 -0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-          <geom name="right_hip_screw4" type="cylinder" pos="0.030 -0.015 -0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
+          <!-- Knee servo module -->
+          <geom name="r_knee_servo" type="cylinder" size="0.024 0.031" euler="0 90 0" material="servo_orange"/>
+          <geom name="r_knee_cap" type="box" pos="0 0 0.022" size="0.031 0.013 0.005" material="servo_orange"/>
+          <geom name="r_knee_face_r" type="cylinder" pos="0.033 0 0" size="0.019 0.003" euler="0 90 0" material="servo_face_blue"/>
+          <geom name="r_knee_face_l" type="cylinder" pos="-0.033 0 0" size="0.019 0.003" euler="0 90 0" material="servo_face_blue"/>
+          <geom name="r_knee_ring" type="cylinder" pos="0.036 0 0" size="0.027 0.004" euler="0 90 0" material="ring_orange" contype="0" conaffinity="0"/>
           
-          <!-- Knee Joint -->
-          <body name="right_thigh" pos="0 0 -0.075">
-            <joint name="right_knee_joint" type="hinge" axis="1 0 0" range="-90 90"/>
+          <!-- Bracket down to ankle -->
+          <geom name="r_knee_bracket" type="box" pos="0 0 -0.045" size="0.024 0.006 0.025" material="bracket_gray"/>
+          
+          <body name="foot" pos="0 0 -0.08">
+            <joint axis="0 -1 0" name="foot_joint" pos="0 0 0" range="-45 45" type="hinge"/>
             
-            <!-- Connection bracket - RECTANGULAR -->
-            <geom name="right_knee_bracket" type="box" pos="0 0 0.035" size="0.028 0.025 0.008" material="bracket_dark"/>
+            <!-- Ankle servo module -->
+            <geom name="r_ankle_servo" type="cylinder" size="0.024 0.031" euler="0 90 0" material="servo_orange"/>
+            <geom name="r_ankle_cap" type="box" pos="0 0 0.022" size="0.031 0.013 0.005" material="servo_orange"/>
+            <geom name="r_ankle_face_r" type="cylinder" pos="0.033 0 0" size="0.019 0.003" euler="0 90 0" material="servo_face_blue"/>
+            <geom name="r_ankle_face_l" type="cylinder" pos="-0.033 0 0" size="0.019 0.003" euler="0 90 0" material="servo_face_blue"/>
+            <geom name="r_ankle_ring" type="cylinder" pos="0.036 0 0" size="0.027 0.004" euler="0 90 0" material="ring_orange" contype="0" conaffinity="0"/>
             
-            <!-- Servo housing - faces front -->
-            <geom name="right_knee_servo" type="cylinder" pos="0 0 0" size="0.031 0.027" euler="0 90 0" material="servo_orange"/>
-            <geom name="right_knee_face_front" type="cylinder" pos="0.028 0 0" size="0.024 0.003" euler="0 90 0" material="servo_face_blue"/>
-            <geom name="right_knee_face_back" type="cylinder" pos="-0.028 0 0" size="0.024 0.003" euler="0 90 0" material="servo_face_blue"/>
-            <geom name="right_knee_screw1" type="cylinder" pos="0.030 0.015 0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-            <geom name="right_knee_screw2" type="cylinder" pos="0.030 -0.015 0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-            <geom name="right_knee_screw3" type="cylinder" pos="0.030 0.015 -0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-            <geom name="right_knee_screw4" type="cylinder" pos="0.030 -0.015 -0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-            
-            <!-- Ankle Joint -->
-            <body name="right_shin" pos="0 0 -0.075">
-              <joint name="right_ankle_joint" type="hinge" axis="1 0 0" range="-90 90"/>
-              
-              <!-- Connection bracket - RECTANGULAR -->
-              <geom name="right_ankle_bracket" type="box" pos="0 0 0.035" size="0.028 0.025 0.008" material="bracket_dark"/>
-              
-              <!-- Servo housing - faces front -->
-              <geom name="right_ankle_servo" type="cylinder" pos="0 0 0" size="0.031 0.027" euler="0 90 0" material="servo_orange"/>
-              <geom name="right_ankle_face_front" type="cylinder" pos="0.028 0 0" size="0.024 0.003" euler="0 90 0" material="servo_face_blue"/>
-              <geom name="right_ankle_face_back" type="cylinder" pos="-0.028 0 0" size="0.024 0.003" euler="0 90 0" material="servo_face_blue"/>
-              <geom name="right_ankle_screw1" type="cylinder" pos="0.030 0.015 0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-              <geom name="right_ankle_screw2" type="cylinder" pos="0.030 -0.015 0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-              
-              <!-- Foot - RECTANGULAR BOX -->
-              <geom name="right_foot_main" type="box" pos="0 0 -0.045" size="0.035 0.025 0.015" material="foot_dark"/>
-              <geom name="right_foot_front" type="box" pos="0.04 0 -0.05" size="0.015 0.02 0.012" material="foot_dark"/>
-              <geom name="right_foot_toe" type="box" pos="0.055 0 -0.05" size="0.008 0.015 0.01" material="foot_accent"/>
-              <site name="right_foot_site" pos="0 0 -0.06" size="0.01" rgba="0 1 0 0.3"/>
-            </body>
+            <!-- Foot -->
+            <geom name="r_foot_bracket" type="box" pos="0 0 -0.025" size="0.024 0.006 0.015" material="bracket_gray"/>
+            <geom name="r_foot_base" type="box" pos="0 0.03 -0.045" size="0.03 0.05 0.008" material="bracket_gray" friction="0.9"/>
+            <geom name="r_foot_toe" type="box" pos="0 0.085 -0.045" size="0.025 0.015 0.008" material="foot_green" friction="0.9"/>
           </body>
         </body>
       </body>
       
+      
       <!-- ========== LEFT LEG ========== -->
-      <body name="left_hip_yaw" pos="-0.06 0 -0.04">
-        <joint name="left_hip_yaw_joint" type="hinge" axis="0 0 1" range="-45 45"/>
+      <body name="thigh_left" pos="-0.035 0 -0.025">
+        <joint axis="0 -1 0" name="thigh_left_joint" pos="0 0 0" range="-90 90" type="hinge"/>
         
-        <!-- Hip mounting bracket -->
-        <geom name="left_hip_bracket" type="box" pos="0 0 0" size="0.02 0.015 0.02" material="bracket_gray"/>
+        <!-- Hip servo module -->
+        <geom name="l_hip_servo" type="cylinder" size="0.024 0.031" euler="0 90 0" material="servo_orange"/>
+        <geom name="l_hip_cap" type="box" pos="0 0 0.022" size="0.031 0.013 0.005" material="servo_orange"/>
+        <geom name="l_hip_face_r" type="cylinder" pos="0.033 0 0" size="0.019 0.003" euler="0 90 0" material="servo_face_blue"/>
+        <geom name="l_hip_face_l" type="cylinder" pos="-0.033 0 0" size="0.019 0.003" euler="0 90 0" material="servo_face_blue"/>
+        <geom name="l_hip_ring" type="cylinder" pos="-0.036 0 0" size="0.027 0.004" euler="0 90 0" material="ring_orange" contype="0" conaffinity="0"/>
         
-        <!-- Hip Pitch Joint -->
-        <body name="left_hip" pos="0 0 -0.035">
-          <joint name="left_hip_joint" type="hinge" axis="1 0 0" range="-90 90"/>
+        <!-- Bracket down to knee -->
+        <geom name="l_hip_bracket" type="box" pos="0 0 -0.045" size="0.024 0.006 0.025" material="bracket_gray"/>
+        
+        <body name="leg_left" pos="0 0 -0.08">
+          <joint axis="0 -1 0" name="leg_left_joint" pos="0 0 0" range="-90 90" type="hinge"/>
           
-          <!-- Servo housing - faces front -->
-          <geom name="left_hip_servo" type="cylinder" pos="0 0 0" size="0.031 0.027" euler="0 90 0" material="servo_orange"/>
-          <geom name="left_hip_face_front" type="cylinder" pos="0.028 0 0" size="0.024 0.003" euler="0 90 0" material="servo_face_blue"/>
-          <geom name="left_hip_face_back" type="cylinder" pos="-0.028 0 0" size="0.024 0.003" euler="0 90 0" material="servo_face_blue"/>
-          <geom name="left_hip_screw1" type="cylinder" pos="0.030 0.015 0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-          <geom name="left_hip_screw2" type="cylinder" pos="0.030 -0.015 0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-          <geom name="left_hip_screw3" type="cylinder" pos="0.030 0.015 -0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-          <geom name="left_hip_screw4" type="cylinder" pos="0.030 -0.015 -0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
+          <!-- Knee servo module -->
+          <geom name="l_knee_servo" type="cylinder" size="0.024 0.031" euler="0 90 0" material="servo_orange"/>
+          <geom name="l_knee_cap" type="box" pos="0 0 0.022" size="0.031 0.013 0.005" material="servo_orange"/>
+          <geom name="l_knee_face_r" type="cylinder" pos="0.033 0 0" size="0.019 0.003" euler="0 90 0" material="servo_face_blue"/>
+          <geom name="l_knee_face_l" type="cylinder" pos="-0.033 0 0" size="0.019 0.003" euler="0 90 0" material="servo_face_blue"/>
+          <geom name="l_knee_ring" type="cylinder" pos="-0.036 0 0" size="0.027 0.004" euler="0 90 0" material="ring_orange" contype="0" conaffinity="0"/>
           
-          <!-- Knee Joint -->
-          <body name="left_thigh" pos="0 0 -0.075">
-            <joint name="left_knee_joint" type="hinge" axis="1 0 0" range="-90 90"/>
+          <!-- Bracket down to ankle -->
+          <geom name="l_knee_bracket" type="box" pos="0 0 -0.045" size="0.024 0.006 0.025" material="bracket_gray"/>
+          
+          <body name="foot_left" pos="0 0 -0.08">
+            <joint axis="0 -1 0" name="foot_left_joint" pos="0 0 0" range="-45 45" type="hinge"/>
             
-            <geom name="left_knee_bracket" type="box" pos="0 0 0.035" size="0.028 0.025 0.008" material="bracket_dark"/>
-            <geom name="left_knee_servo" type="cylinder" pos="0 0 0" size="0.031 0.027" euler="0 90 0" material="servo_orange"/>
-            <geom name="left_knee_face_front" type="cylinder" pos="0.028 0 0" size="0.024 0.003" euler="0 90 0" material="servo_face_blue"/>
-            <geom name="left_knee_face_back" type="cylinder" pos="-0.028 0 0" size="0.024 0.003" euler="0 90 0" material="servo_face_blue"/>
-            <geom name="left_knee_screw1" type="cylinder" pos="0.030 0.015 0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-            <geom name="left_knee_screw2" type="cylinder" pos="0.030 -0.015 0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-            <geom name="left_knee_screw3" type="cylinder" pos="0.030 0.015 -0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-            <geom name="left_knee_screw4" type="cylinder" pos="0.030 -0.015 -0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
+            <!-- Ankle servo module -->
+            <geom name="l_ankle_servo" type="cylinder" size="0.024 0.031" euler="0 90 0" material="servo_orange"/>
+            <geom name="l_ankle_cap" type="box" pos="0 0 0.022" size="0.031 0.013 0.005" material="servo_orange"/>
+            <geom name="l_ankle_face_r" type="cylinder" pos="0.033 0 0" size="0.019 0.003" euler="0 90 0" material="servo_face_blue"/>
+            <geom name="l_ankle_face_l" type="cylinder" pos="-0.033 0 0" size="0.019 0.003" euler="0 90 0" material="servo_face_blue"/>
+            <geom name="l_ankle_ring" type="cylinder" pos="-0.036 0 0" size="0.027 0.004" euler="0 90 0" material="ring_orange" contype="0" conaffinity="0"/>
             
-            <!-- Ankle Joint -->
-            <body name="left_shin" pos="0 0 -0.075">
-              <joint name="left_ankle_joint" type="hinge" axis="1 0 0" range="-90 90"/>
-              
-              <geom name="left_ankle_bracket" type="box" pos="0 0 0.035" size="0.028 0.025 0.008" material="bracket_dark"/>
-              <geom name="left_ankle_servo" type="cylinder" pos="0 0 0" size="0.031 0.027" euler="0 90 0" material="servo_orange"/>
-              <geom name="left_ankle_face_front" type="cylinder" pos="0.028 0 0" size="0.024 0.003" euler="0 90 0" material="servo_face_blue"/>
-              <geom name="left_ankle_face_back" type="cylinder" pos="-0.028 0 0" size="0.024 0.003" euler="0 90 0" material="servo_face_blue"/>
-              <geom name="left_ankle_screw1" type="cylinder" pos="0.030 0.015 0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-              <geom name="left_ankle_screw2" type="cylinder" pos="0.030 -0.015 0.015" size="0.003 0.002" euler="0 90 0" material="screw_metal"/>
-              
-              <!-- Foot - RECTANGULAR BOX -->
-              <geom name="left_foot_main" type="box" pos="0 0 -0.045" size="0.035 0.025 0.015" material="foot_dark"/>
-              <geom name="left_foot_front" type="box" pos="-0.04 0 -0.05" size="0.015 0.02 0.012" material="foot_dark"/>
-              <geom name="left_foot_toe" type="box" pos="-0.055 0 -0.05" size="0.008 0.015 0.01" material="foot_accent"/>
-              <site name="left_foot_site" pos="0 0 -0.06" size="0.01" rgba="0 1 0 0.3"/>
-            </body>
+            <!-- Foot -->
+            <geom name="l_foot_bracket" type="box" pos="0 0 -0.025" size="0.024 0.006 0.015" material="bracket_gray"/>
+            <geom name="l_foot_base" type="box" pos="0 0.03 -0.045" size="0.03 0.05 0.008" material="bracket_gray" friction="0.9"/>
+            <geom name="l_foot_toe" type="box" pos="0 0.085 -0.045" size="0.025 0.015 0.008" material="foot_green" friction="0.9"/>
           </body>
         </body>
       </body>
+      
     </body>
   </worldbody>
   
-  <!-- Actuators -->
+  <!-- Actuators: MG996R ~1.1 Nm, gear=100 matches Walker2d scaling -->
   <actuator>
-    <motor name="right_hip_yaw_motor" joint="right_hip_yaw_joint" gear="30"/>
-    <motor name="right_hip_motor" joint="right_hip_joint" gear="50"/>
-    <motor name="right_knee_motor" joint="right_knee_joint" gear="50"/>
-    <motor name="right_ankle_motor" joint="right_ankle_joint" gear="50"/>
-    <motor name="left_hip_yaw_motor" joint="left_hip_yaw_joint" gear="30"/>
-    <motor name="left_hip_motor" joint="left_hip_joint" gear="50"/>
-    <motor name="left_knee_motor" joint="left_knee_joint" gear="50"/>
-    <motor name="left_ankle_motor" joint="left_ankle_joint" gear="50"/>
+    <motor joint="thigh_joint" gear="100"/>
+    <motor joint="leg_joint" gear="100"/>
+    <motor joint="foot_joint" gear="100"/>
+    <motor joint="thigh_left_joint" gear="100"/>
+    <motor joint="leg_left_joint" gear="100"/>
+    <motor joint="foot_left_joint" gear="100"/>
   </actuator>
-  
-  <!-- Sensors -->
-  <sensor>
-    <accelerometer name="torso_accel" site="torso_site"/>
-    <gyro name="torso_gyro" site="torso_site"/>
-    <touch name="right_foot_touch" site="right_foot_site"/>
-    <touch name="left_foot_touch" site="left_foot_site"/>
-  </sensor>
 </mujoco>

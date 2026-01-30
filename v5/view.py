@@ -95,14 +95,14 @@ def load_model(model_path: str) -> tuple[mujoco.MjModel, mujoco.MjData]:
 
 
 def run_passive_viewer(model: mujoco.MjModel, data: mujoco.MjData) -> None:
-    """Run the interactive MuJoCo viewer."""
+    """Run the interactive MuJoCo viewer (resizable by default)."""
     print_model_info(model)
     print_controls()
     
     print("🚀 Launching native MuJoCo viewer...")
-    print("   (Close the window or press Ctrl+C to exit)\n")
+    print("   (Drag window edges to resize, close window or press Esc to exit)\n")
     
-    # Launch the native viewer
+    # Native viewer is already resizable - just launch it
     mujoco.viewer.launch(model, data)
 
 
@@ -127,7 +127,7 @@ def run_with_callback(model: mujoco.MjModel, data: mujoco.MjData) -> None:
     print("🚀 Launching native MuJoCo viewer with controller...")
     print("   (Close the window or press Ctrl+C to exit)\n")
     
-    # Launch with passive viewer and manual stepping
+    # Use native viewer for callback mode (it already handles resizing internally)
     with mujoco.viewer.launch_passive(model, data) as viewer:
         while viewer.is_running():
             # Step the simulation
