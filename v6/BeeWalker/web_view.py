@@ -37,15 +37,36 @@ def simulation_verified_loop():
     
     start_time = time.time()
     
+    # Walking gait parameters
+    gait_frequency = 1.5  # Hz
+    hip_amplitude = 0.5   # radians
+    knee_amplitude = 0.6  # radians
+    ankle_amplitude = 0.3 # radians
+    
     while True:
         now = time.time()
         elapsed = now - start_time
         
-        # 1. ACTUATION: Wiggle joints
-        # Oscillate between -0.5 and 0.5 radians (approx -30 to 30 degrees)
-        # Using different speeds for different joints to look "alive"
-        trajectory = np.sin(elapsed * 2.0) * 0.5 
-        data.ctrl[:] = trajectory
+        # Walking gait phase
+        phase = 2 * math.pi * gait_frequency * elapsed
+        
+        # Left leg (phase = 0)
+        left_hip = hip_amplitude * math.sin(phase)
+        left_knee = knee_amplitude * (math.sin(phase) + 1) / 2
+        left_ankle = ankle_amplitude * math.sin(phase + math.pi/4)
+        
+        # Right leg (phase = pi, 180 degrees offset)
+        right_hip = hip_amplitude * math.sin(phase + math.pi)
+        right_knee = knee_amplitude * (math.sin(phase + math.pi) + 1) / 2
+        right_ankle = ankle_amplitude * math.sin(phase + math.pi + math.pi/4)
+        
+        # Apply walking controls
+        data.ctrl[0] = left_hip
+        data.ctrl[1] = left_knee
+        data.ctrl[2] = left_ankle
+        data.ctrl[3] = right_hip
+        data.ctrl[4] = right_knee
+        data.ctrl[5] = right_ankle
         
         # 2. PHYSICS STEP
         mujoco.mj_step(model, data)
