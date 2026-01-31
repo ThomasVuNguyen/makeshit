@@ -69,6 +69,10 @@ def evaluate_gait(model, params: GaitParams, duration: float = 4.0) -> float:
     total_height = 0.0
     height_samples = 0
     
+    # Track joint positions for movement variety
+    joint_mins = np.full(6, float('inf'))
+    joint_maxs = np.full(6, float('-inf'))
+    
     while sim_time < duration:
         apply_gait(data, params, sim_time)
         mujoco.mj_step(model, data)
@@ -78,17 +82,32 @@ def evaluate_gait(model, params: GaitParams, duration: float = 4.0) -> float:
         min_height = min(min_height, height)
         total_height += height
         height_samples += 1
+        
+        # Track joint range of motion
+        joint_mins = np.minimum(joint_mins, data.ctrl[:6])
+        joint_maxs = np.maximum(joint_maxs, data.ctrl[:6])
     
     end_pos = data.body("pelvis").xpos.copy()
     
+    # Calculate metrics
     forward_distance = end_pos[0] - start_pos[0]
     avg_height = total_height / max(height_samples, 1)
-    height_bonus = max(0, avg_height - 0.1) * 2
+    speed = forward_distance / duration  # meters per second
+    
+    # Joint activity: how much range each joint uses (0 to ~3 radians max)
+    joint_ranges = joint_maxs - joint_mins
+    avg_joint_activity = np.mean(joint_ranges)
+    
+    # Fitness components
+    distance_bonus = forward_distance * 10        # Reward forward distance
+    speed_bonus = max(0, speed) * 5               # Reward faster walking
+    height_bonus = max(0, avg_height - 0.1) * 2   # Reward staying upright
+    activity_bonus = avg_joint_activity * 3       # Reward dynamic movement!
     fall_penalty = -5.0 if min_height < 0.08 else 0
     lateral_drift = abs(end_pos[1] - start_pos[1])
     drift_penalty = -lateral_drift * 0.5
     
-    return forward_distance * 10 + height_bonus + fall_penalty + drift_penalty
+    return distance_bonus + speed_bonus + height_bonus + activity_bonus + fall_penalty + drift_penalty
 
 def training_thread():
     """Background thread that runs evolution"""
