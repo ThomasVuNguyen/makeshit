@@ -1,540 +1,577 @@
 """
-BeeWalker Training Script - PARALLEL VERSION
-Evolutionary training using all CPU cores for parallel gait evaluation.
-Shows the best walker while training runs.
-Watch on port 1306.
+BeeWalker 24-Hour Training Script
+Runs multiple parallel experiments with different reward configurations.
+Designed to maximize learning over 24 hours of compute.
 
-Each run saves to results/<timestamp>/:
-  - config.json: Training configuration and hyperparameters
-  - best_params.json: Best gait parameters (weights)
-  - training_log.json: Full training history
-  - videos/: Video recordings at checkpoints
+Usage:
+    python train.py                    # Run full 24-hour experiment suite
+    python train.py --phase 1          # Run only Phase 1 (reward sweep)
+    python train.py --phase 2          # Run Phase 2 (long training on best)
+    python train.py --quick            # Quick test (1M steps per config)
 """
 import os
 os.environ['MUJOCO_GL'] = 'egl'
 
-import mujoco
-from flask import Flask, Response
+import argparse
 import time
 import threading
-import cv2
-import numpy as np
-import math
-from dataclasses import dataclass, asdict
-import copy
 import json
 from datetime import datetime
-from multiprocessing import Pool, cpu_count, Manager
+from pathlib import Path
+from dataclasses import dataclass, asdict
+from typing import Dict, List, Optional
+import shutil
 
-app = Flask(__name__)
+import numpy as np
+import cv2
+from flask import Flask, Response, render_template_string
+from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+from stable_baselines3.common.utils import set_random_seed
 
-# Global state (for main process)
-latest_frame = None
-lock = threading.Lock()
-params_lock = threading.Lock()
+from bee_walker_env import BeeWalkerEnv
 
-# Shared state via Manager (for cross-process communication)
-manager = None
-training_stats = None
-current_best_params = None
 
-POPULATION_SIZE = 50  # Increased since we can evaluate faster now!
-NUM_WORKERS = None  # Will be set to cpu_count()
-
-# Results directory for this run
-RUN_DIR = None
-
-def init_shared_state():
-    """Initialize shared state for multiprocessing."""
-    global manager, training_stats, current_best_params
-    manager = Manager()
-    training_stats = manager.dict({"generation": 0, "best_fitness": 0, "evaluating": 0, "workers": 0})
-    # We'll use a separate mechanism for current_best_params
-
-def init_run_directory():
-    """Create timestamped results directory for this training run."""
-    global RUN_DIR
-    
-    base_dir = os.path.join(os.path.dirname(__file__), "results")
-    os.makedirs(base_dir, exist_ok=True)
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    RUN_DIR = os.path.join(base_dir, timestamp)
-    os.makedirs(RUN_DIR, exist_ok=True)
-    os.makedirs(os.path.join(RUN_DIR, "videos"), exist_ok=True)
-    
-    print(f"Results will be saved to: {RUN_DIR}")
-    return RUN_DIR
-
-def save_config(num_workers: int):
-    """Save training configuration."""
-    config = {
-        "population_size": POPULATION_SIZE,
-        "num_workers": num_workers,
-        "model_file": "model.xml",
-        "evaluation_duration": 4.0,
-        "timestamp": datetime.now().isoformat(),
-        "gait_param_ranges": {
-            "gait_frequency": {"min": 0.5, "init_range": [1.0, 2.5]},
-            "hip_amplitude": {"min": 0.1, "max": 1.2, "init_range": [0.3, 0.9]},
-            "knee_amplitude": {"min": 0.1, "max": 1.2, "init_range": [0.3, 0.9]},
-            "ankle_amplitude": {"min": 0.0, "max": 0.8},
-            "phase_offset": {"default": math.pi},
-            "knee_offset": {"min": -0.5, "max": 0.5}
-        }
-    }
-    
-    config_path = os.path.join(RUN_DIR, "config.json")
-    with open(config_path, 'w') as f:
-        json.dump(config, f, indent=2)
-    print(f"Saved config to {config_path}")
-
-def save_best_params(params: 'GaitParams', fitness: float, generation: int):
-    """Save the best gait parameters (model weights)."""
-    weights = {
-        "generation": generation,
-        "fitness": fitness,
-        "params": asdict(params),
-        "timestamp": datetime.now().isoformat()
-    }
-    
-    weights_path = os.path.join(RUN_DIR, "best_params.json")
-    with open(weights_path, 'w') as f:
-        json.dump(weights, f, indent=2)
-
-def save_training_log(log_entries: list):
-    """Save the full training history."""
-    log_path = os.path.join(RUN_DIR, "training_log.json")
-    with open(log_path, 'w') as f:
-        json.dump(log_entries, f, indent=2)
-
-def record_video(model, params: 'GaitParams', generation: int, duration: float = 5.0):
-    """Record a video of the current best walker."""
-    data = mujoco.MjData(model)
-    renderer = mujoco.Renderer(model, height=480, width=640)
-    
-    camera = mujoco.MjvCamera()
-    camera.distance = 0.8
-    camera.elevation = -20
-    camera.azimuth = 135
-    
-    video_path = os.path.join(RUN_DIR, "videos", f"gen_{generation:04d}.mp4")
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    video_writer = cv2.VideoWriter(video_path, fourcc, 30.0, (640, 480))
-    
-    sim_time = 0.0
-    frame_interval = 1.0 / 30.0  # 30 FPS
-    next_frame_time = 0.0
-    
-    while sim_time < duration:
-        apply_gait(data, params, sim_time)
-        mujoco.mj_step(model, data)
-        sim_time += model.opt.timestep
-        
-        # Record frame at 30 FPS
-        if sim_time >= next_frame_time:
-            camera.lookat = data.body("pelvis").xpos.copy()
-            renderer.update_scene(data, camera=camera)
-            pixels = renderer.render()
-            pixels_bgr = cv2.cvtColor(pixels, cv2.COLOR_RGB2BGR)
-            
-            # Add stats overlay
-            best_fit = training_stats.get('best_fitness', 0) if training_stats else 0
-            text = f"Gen {generation} | Fitness: {best_fit:.2f}"
-            cv2.putText(pixels_bgr, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            
-            video_writer.write(pixels_bgr)
-            next_frame_time += frame_interval
-    
-    video_writer.release()
-    print(f"Saved video: {video_path}")
+# ============================================================================
+# REWARD CONFIGURATIONS
+# ============================================================================
 
 @dataclass
-class GaitParams:
-    """Parameters that define a walking gait"""
-    gait_frequency: float = 1.5
-    hip_amplitude: float = 0.5
-    knee_amplitude: float = 0.6
-    ankle_amplitude: float = 0.3
-    phase_offset: float = math.pi
-    knee_offset: float = 0.0
+class RewardConfig:
+    """Configuration for different reward strategies."""
+    name: str
+    description: str
     
-    def mutate(self, mutation_rate: float = 0.2) -> 'GaitParams':
-        new_params = copy.copy(self)
-        new_params.gait_frequency = np.clip(self.gait_frequency + np.random.randn() * mutation_rate, 0.5, 3.0)  # Max 3Hz for realistic walking
-        new_params.hip_amplitude = np.clip(self.hip_amplitude + np.random.randn() * mutation_rate, 0.1, 1.2)
-        new_params.knee_amplitude = np.clip(self.knee_amplitude + np.random.randn() * mutation_rate, 0.1, 1.2)
-        new_params.ankle_amplitude = np.clip(self.ankle_amplitude + np.random.randn() * mutation_rate, 0.0, 0.8)
-        new_params.phase_offset = self.phase_offset + np.random.randn() * mutation_rate * 0.5
-        new_params.knee_offset = np.clip(self.knee_offset + np.random.randn() * mutation_rate * 0.3, -0.5, 0.5)
-        return new_params
+    # Reward weights
+    velocity_weight: float = 2.0
+    upright_weight: float = 0.5
+    height_weight: float = 0.5
+    stepping_weight: float = 2.0
+    ctrl_cost_weight: float = 0.001
+    drift_penalty_weight: float = 0.1
     
-    def to_dict(self) -> dict:
-        return asdict(self)
+    # Additional reward components
+    knee_bend_weight: float = 0.0      # Reward knee movement
+    foot_clearance_weight: float = 0.0  # Reward lifting feet
+    symmetry_weight: float = 0.0        # Reward gait symmetry
+    efficiency_weight: float = 0.0      # Reward energy efficiency
+    exploration_bonus: float = 0.0      # Entropy bonus
     
-    @staticmethod
-    def from_dict(d: dict) -> 'GaitParams':
-        return GaitParams(**d)
+    # Training parameters
+    total_timesteps: int = 10_000_000
+    ent_coef: float = 0.01
+    learning_rate: float = 3e-4
 
-def apply_gait(data, params: GaitParams, sim_time: float):
-    """Apply gait parameters to control the robot"""
-    phase = 2 * math.pi * params.gait_frequency * sim_time
-    
-    data.ctrl[0] = params.hip_amplitude * math.sin(phase)
-    data.ctrl[1] = params.knee_offset + params.knee_amplitude * (math.sin(phase) + 1) / 2
-    data.ctrl[2] = params.ankle_amplitude * math.sin(phase + math.pi/4)
-    data.ctrl[3] = params.hip_amplitude * math.sin(phase + params.phase_offset)
-    data.ctrl[4] = params.knee_offset + params.knee_amplitude * (math.sin(phase + params.phase_offset) + 1) / 2
-    data.ctrl[5] = params.ankle_amplitude * math.sin(phase + params.phase_offset + math.pi/4)
 
-def evaluate_gait_worker(params_dict: dict, duration: float = 4.0) -> float:
-    """
-    Worker function for parallel evaluation.
-    Takes a dict (for pickling) and returns fitness score.
-    Each worker loads its own model instance.
+# Six different reward profiles for Phase 1
+REWARD_CONFIGS = {
+    "natural": RewardConfig(
+        name="natural",
+        description="Forces knee bending and foot clearance for natural gait",
+        knee_bend_weight=3.0,
+        foot_clearance_weight=5.0,
+        stepping_weight=3.0,
+        ctrl_cost_weight=0.0005,
+    ),
+    "speed": RewardConfig(
+        name="speed",
+        description="Maximum forward velocity focus",
+        velocity_weight=5.0,
+        upright_weight=0.3,
+        stepping_weight=1.0,
+        ctrl_cost_weight=0.0001,
+    ),
+    "explorer": RewardConfig(
+        name="explorer",
+        description="High exploration with curiosity-like bonus",
+        exploration_bonus=0.5,
+        ent_coef=0.05,  # Much higher entropy
+        velocity_weight=1.5,
+        stepping_weight=3.0,
+    ),
+    "efficient": RewardConfig(
+        name="efficient",
+        description="Energy-efficient locomotion",
+        efficiency_weight=2.0,
+        velocity_weight=1.0,
+        ctrl_cost_weight=0.01,  # Strong penalty for effort
+    ),
+    "symmetric": RewardConfig(
+        name="symmetric",
+        description="Enforces left-right symmetry for natural walking",
+        symmetry_weight=3.0,
+        knee_bend_weight=2.0,
+        stepping_weight=2.0,
+    ),
+    "aggressive": RewardConfig(
+        name="aggressive",
+        description="Risk-taking with high velocity and low safety margin",
+        velocity_weight=8.0,
+        upright_weight=0.2,
+        height_weight=0.1,
+        stepping_weight=4.0,
+        ent_coef=0.02,
+    ),
+}
+
+
+# ============================================================================
+# CUSTOM ENVIRONMENT WITH CONFIGURABLE REWARDS
+# ============================================================================
+
+class ConfigurableRewardEnv(BeeWalkerEnv):
+    """BeeWalker environment with configurable reward function."""
     
-    Improved fitness function with:
-    - Frequency penalty for unrealistic speeds
-    - Foot alternation reward for actual walking
-    - Energy efficiency penalty
-    """
-    # Load model in worker process (each worker has its own)
-    model = mujoco.MjModel.from_xml_path("model.xml")
-    data = mujoco.MjData(model)
+    def __init__(self, reward_config: RewardConfig, render_mode=None, max_episode_steps=1000):
+        super().__init__(render_mode=render_mode, max_episode_steps=max_episode_steps)
+        self.reward_config = reward_config
+        self._prev_joint_pos = None
+        self._prev_left_foot_z = 0
+        self._prev_right_foot_z = 0
     
-    params = GaitParams.from_dict(params_dict)
+    def reset(self, seed=None, options=None):
+        obs, info = super().reset(seed=seed, options=options)
+        self._prev_joint_pos = self.data.qpos[7:13].copy()  # After freejoint
+        self._prev_left_foot_z = self.data.body("left_foot").xpos[2]
+        self._prev_right_foot_z = self.data.body("right_foot").xpos[2]
+        return obs, info
     
-    start_pos = data.body("pelvis").xpos.copy()
-    sim_time = 0.0
-    min_height = float('inf')
-    total_height = 0.0
-    height_samples = 0
-    
-    # Track joint positions for movement variety
-    joint_mins = np.full(6, float('inf'))
-    joint_maxs = np.full(6, float('-inf'))
-    
-    # NEW: Track foot alternation for walking quality
-    foot_alternation_sum = 0.0
-    total_ctrl_effort = 0.0
-    prev_left_foot_z = 0.0
-    prev_right_foot_z = 0.0
-    step_count = 0
-    
-    while sim_time < duration:
-        apply_gait(data, params, sim_time)
-        mujoco.mj_step(model, data)
-        sim_time += model.opt.timestep
+    def _compute_reward(self, action):
+        """Enhanced reward function with configurable components."""
+        cfg = self.reward_config
         
-        height = data.body("pelvis").xpos[2]
-        min_height = min(min_height, height)
-        total_height += height
-        height_samples += 1
+        pelvis_pos = self.data.body("pelvis").xpos
+        pelvis_vel = self.data.body("pelvis").cvel
+        pelvis_mat = self.data.body("pelvis").xmat.reshape(3, 3)
+        upright = pelvis_mat[2, 2]
         
-        # Track joint range of motion
-        joint_mins = np.minimum(joint_mins, data.ctrl[:6])
-        joint_maxs = np.maximum(joint_maxs, data.ctrl[:6])
+        # Base rewards
+        forward_vel = pelvis_vel[3]
+        velocity_reward = forward_vel * cfg.velocity_weight
+        upright_reward = upright * cfg.upright_weight
+        height_reward = (cfg.height_weight if pelvis_pos[2] > 0.15 else 0.0)
         
-        # NEW: Track foot positions for alternation metric
-        left_foot_z = data.body("left_foot").xpos[2]
-        right_foot_z = data.body("right_foot").xpos[2]
-        foot_alternation_sum += abs(left_foot_z - right_foot_z)
+        # Foot positions
+        left_foot_z = self.data.body("left_foot").xpos[2]
+        right_foot_z = self.data.body("right_foot").xpos[2]
+        foot_diff = abs(left_foot_z - right_foot_z)
+        stepping_reward = foot_diff * cfg.stepping_weight
         
-        # Detect step transitions (foot going up then down)
-        if height_samples > 1:
-            if (left_foot_z > prev_left_foot_z + 0.005) or (right_foot_z > prev_right_foot_z + 0.005):
-                step_count += 1
+        # Control cost
+        ctrl_cost = cfg.ctrl_cost_weight * np.sum(action**2)
         
-        prev_left_foot_z = left_foot_z
-        prev_right_foot_z = right_foot_z
+        # Drift penalty
+        lateral_vel = abs(pelvis_vel[4])
+        drift_penalty = cfg.drift_penalty_weight * lateral_vel
         
-        # NEW: Track control effort for energy penalty
-        total_ctrl_effort += np.sum(np.abs(data.ctrl[:6]))
+        # === NEW REWARD COMPONENTS ===
+        
+        # Knee bend reward - penalize straight knees
+        knee_bend_reward = 0.0
+        if cfg.knee_bend_weight > 0:
+            left_knee = abs(self.data.qpos[self._joint_qpos_indices[1]])
+            right_knee = abs(self.data.qpos[self._joint_qpos_indices[4]])
+            knee_bend_reward = cfg.knee_bend_weight * (left_knee + right_knee) / 2
+        
+        # Foot clearance reward - reward lifting feet high
+        foot_clearance_reward = 0.0
+        if cfg.foot_clearance_weight > 0:
+            max_foot_height = max(left_foot_z, right_foot_z)
+            if max_foot_height > 0.02:  # Must lift at least 2cm
+                foot_clearance_reward = cfg.foot_clearance_weight * (max_foot_height - 0.02)
+        
+        # Gait symmetry reward
+        symmetry_reward = 0.0
+        if cfg.symmetry_weight > 0:
+            # Check if legs are in opposite phases
+            left_hip = self.data.qpos[self._joint_qpos_indices[0]]
+            right_hip = self.data.qpos[self._joint_qpos_indices[3]]
+            # Opposite signs = good symmetry
+            symmetry = -left_hip * right_hip  # Positive when opposite
+            symmetry_reward = cfg.symmetry_weight * max(0, symmetry)
+        
+        # Energy efficiency
+        efficiency_reward = 0.0
+        if cfg.efficiency_weight > 0:
+            # Reward distance per unit energy
+            if np.sum(action**2) > 0.01:
+                efficiency = forward_vel / (np.sum(action**2) + 0.1)
+                efficiency_reward = cfg.efficiency_weight * efficiency
+        
+        # Exploration bonus (state-based novelty approximation)
+        exploration_bonus = 0.0
+        if cfg.exploration_bonus > 0:
+            # Reward joint velocity (movement = exploration)
+            joint_vel = np.sum(np.abs(self.data.qvel[6:12]))
+            exploration_bonus = cfg.exploration_bonus * joint_vel
+        
+        total_reward = (
+            velocity_reward +
+            upright_reward +
+            height_reward +
+            stepping_reward +
+            knee_bend_reward +
+            foot_clearance_reward +
+            symmetry_reward +
+            efficiency_reward +
+            exploration_bonus -
+            ctrl_cost -
+            drift_penalty
+        )
+        
+        return total_reward
+
+
+# ============================================================================
+# TRAINING INFRASTRUCTURE
+# ============================================================================
+
+# Flask app for multi-experiment visualization
+app = Flask(__name__)
+experiment_frames = {}
+experiment_stats = {}
+frame_lock = threading.Lock()
+
+
+def make_configurable_env(reward_config: RewardConfig, rank: int, seed: int = 0):
+    """Factory for creating configurable environments."""
+    def _init():
+        env = ConfigurableRewardEnv(reward_config, render_mode="rgb_array")
+        env.reset(seed=seed + rank)
+        return env
+    set_random_seed(seed)
+    return _init
+
+
+class ExperimentCallback(BaseCallback):
+    """Callback for tracking experiment progress."""
     
-    end_pos = data.body("pelvis").xpos.copy()
+    def __init__(self, config_name: str, eval_env, video_freq: int = 100000, verbose: int = 1):
+        super().__init__(verbose)
+        self.config_name = config_name
+        self.eval_env = eval_env
+        self.video_freq = video_freq
+        self.best_mean_reward = float('-inf')
+        self.rewards_history = []
     
-    # Calculate metrics
-    forward_distance = end_pos[0] - start_pos[0]
-    avg_height = total_height / max(height_samples, 1)
-    speed = forward_distance / duration  # meters per second
+    def _on_step(self):
+        global experiment_frames, experiment_stats
+        
+        # Update stats
+        with frame_lock:
+            experiment_stats[self.config_name] = {
+                "timesteps": self.num_timesteps,
+                "best_reward": self.best_mean_reward,
+            }
+        
+        # Render frame for visualization
+        if self.num_timesteps % 500 == 0:
+            try:
+                frame = self.training_env.env_method("render")[0]
+                if frame is not None:
+                    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    text = f"{self.config_name}: {self.num_timesteps//1000}k steps"
+                    cv2.putText(frame_bgr, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                    
+                    ret, buffer = cv2.imencode('.jpg', frame_bgr)
+                    if ret:
+                        with frame_lock:
+                            experiment_frames[self.config_name] = buffer.tobytes()
+            except:
+                pass
+        
+        # Record video
+        if self.num_timesteps % self.video_freq == 0 and self.num_timesteps > 0:
+            self._record_video()
+        
+        return True
     
-    # Joint activity: how much range each joint uses (0 to ~3 radians max)
-    joint_ranges = joint_maxs - joint_mins
-    avg_joint_activity = np.mean(joint_ranges)
+    def _on_rollout_end(self):
+        if len(self.model.ep_info_buffer) > 0:
+            rewards = [ep["r"] for ep in self.model.ep_info_buffer]
+            mean_reward = np.mean(rewards)
+            self.rewards_history.append((self.num_timesteps, mean_reward))
+            if mean_reward > self.best_mean_reward:
+                self.best_mean_reward = mean_reward
     
-    # NEW: Average foot alternation (higher = more stepping motion)
-    avg_foot_alternation = foot_alternation_sum / max(height_samples, 1)
-    avg_ctrl_effort = total_ctrl_effort / max(height_samples, 1)
+    def _record_video(self):
+        """Record evaluation video."""
+        run_dir = self.model.logger.dir
+        if run_dir is None:
+            return
+        
+        video_dir = Path(run_dir) / "videos"
+        video_dir.mkdir(exist_ok=True)
+        
+        obs, _ = self.eval_env.reset()
+        frames = []
+        
+        for _ in range(300):
+            action, _ = self.model.predict(obs, deterministic=True)
+            obs, reward, terminated, truncated, info = self.eval_env.step(action)
+            frame = self.eval_env.render()
+            if frame is not None:
+                frames.append(frame)
+            if terminated or truncated:
+                obs, _ = self.eval_env.reset()
+        
+        if frames:
+            video_path = video_dir / f"step_{self.num_timesteps:08d}.mp4"
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(str(video_path), fourcc, 30, (640, 480))
+            for frame in frames:
+                out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+            out.release()
+
+
+def run_experiment(config_name: str, config: RewardConfig, base_dir: Path, n_envs: int = 4):
+    """Run a single experiment configuration."""
+    print(f"\n{'='*60}")
+    print(f"Starting experiment: {config_name}")
+    print(f"Description: {config.description}")
+    print(f"Timesteps: {config.total_timesteps:,}")
+    print(f"{'='*60}\n")
     
-    # ===== FITNESS COMPONENTS =====
+    # Create experiment directory
+    exp_dir = base_dir / config_name
+    exp_dir.mkdir(exist_ok=True)
+    (exp_dir / "videos").mkdir(exist_ok=True)
+    (exp_dir / "checkpoints").mkdir(exist_ok=True)
     
-    # Core locomotion rewards
-    distance_bonus = forward_distance * 10        # Reward forward distance
-    speed_bonus = max(0, speed) * 5               # Reward faster walking
-    height_bonus = max(0, avg_height - 0.1) * 2   # Reward staying upright
-    activity_bonus = avg_joint_activity * 2       # Reward dynamic movement (reduced weight)
+    # Save config
+    with open(exp_dir / "config.json", 'w') as f:
+        json.dump(asdict(config), f, indent=2)
     
-    # NEW: Walking quality rewards
-    alternation_bonus = avg_foot_alternation * 20  # Strong reward for stepping motion!
-    step_bonus = min(step_count * 0.02, 2.0)       # Reward actual steps (capped)
+    # Create environments
+    env = SubprocVecEnv([make_configurable_env(config, i) for i in range(n_envs)])
+    eval_env = ConfigurableRewardEnv(config, render_mode="rgb_array")
     
-    # Penalties
-    fall_penalty = -10.0 if min_height < 0.08 else 0  # Increased fall penalty
-    lateral_drift = abs(end_pos[1] - start_pos[1])
-    drift_penalty = -lateral_drift * 2.0              # Increased drift penalty
-    
-    # NEW: Frequency penalty - discourage unrealistically fast gaits
-    frequency_penalty = max(0, params.gait_frequency - 2.0) * -5.0  # Penalize >2Hz
-    
-    # NEW: Energy efficiency penalty
-    energy_penalty = -avg_ctrl_effort * 0.05  # Small penalty for excessive effort
-    
-    total_fitness = (
-        distance_bonus + speed_bonus + height_bonus + activity_bonus +
-        alternation_bonus + step_bonus +
-        fall_penalty + drift_penalty + frequency_penalty + energy_penalty
+    # Create model
+    model = PPO(
+        "MlpPolicy",
+        env,
+        learning_rate=config.learning_rate,
+        n_steps=2048,
+        batch_size=64,
+        n_epochs=10,
+        gamma=0.99,
+        gae_lambda=0.95,
+        clip_range=0.2,
+        ent_coef=config.ent_coef,
+        vf_coef=0.5,
+        max_grad_norm=0.5,
+        device="cpu",
+        policy_kwargs=dict(net_arch=dict(pi=[64, 64], vf=[64, 64])),
+        tensorboard_log=str(exp_dir / "tensorboard"),
+        verbose=1,
     )
     
-    return total_fitness
+    # Callbacks
+    exp_callback = ExperimentCallback(config_name, eval_env, video_freq=config.total_timesteps // 20)
+    checkpoint_callback = CheckpointCallback(
+        save_freq=config.total_timesteps // (10 * n_envs),
+        save_path=str(exp_dir / "checkpoints"),
+        name_prefix=config_name
+    )
+    
+    # Train
+    start_time = time.time()
+    try:
+        model.learn(
+            total_timesteps=config.total_timesteps,
+            callback=[exp_callback, checkpoint_callback],
+            progress_bar=True,
+        )
+    except KeyboardInterrupt:
+        print(f"\n{config_name}: Training interrupted")
+    
+    elapsed = time.time() - start_time
+    
+    # Save final model and results
+    model.save(str(exp_dir / "final_model"))
+    
+    results = {
+        "config_name": config_name,
+        "total_timesteps": config.total_timesteps,
+        "elapsed_seconds": elapsed,
+        "best_mean_reward": exp_callback.best_mean_reward,
+        "rewards_history": exp_callback.rewards_history,
+    }
+    with open(exp_dir / "results.json", 'w') as f:
+        json.dump(results, f, indent=2)
+    
+    print(f"\n{config_name}: Completed in {elapsed/60:.1f} min, best reward: {exp_callback.best_mean_reward:.2f}")
+    
+    env.close()
+    eval_env.close()
+    
+    return results
 
-# Global variable in main process to hold best params for visualization
-_viz_best_params = None
-_viz_params_lock = threading.Lock()
 
-def training_thread():
-    """Background thread that runs parallel evolution"""
-    global training_stats, _viz_best_params
+def run_parallel_experiments(configs: Dict[str, RewardConfig], base_dir: Path, max_parallel: int = 3):
+    """Run multiple experiments, up to max_parallel at a time."""
+    import concurrent.futures
     
-    print("Starting training thread...")
+    results = {}
+    config_items = list(configs.items())
     
-    # Determine number of workers
-    num_workers = cpu_count()
-    print(f"Using {num_workers} CPU cores for parallel evaluation")
-    training_stats["workers"] = num_workers
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_parallel) as executor:
+        futures = {}
+        for name, config in config_items:
+            future = executor.submit(run_experiment, name, config, base_dir)
+            futures[future] = name
+        
+        for future in concurrent.futures.as_completed(futures):
+            name = futures[future]
+            try:
+                results[name] = future.result()
+            except Exception as e:
+                print(f"Experiment {name} failed: {e}")
+                results[name] = {"error": str(e)}
     
-    # Save initial config
-    save_config(num_workers)
-    
-    # Training log
-    training_log = []
-    
-    # Initialize population
-    population = []
-    for _ in range(POPULATION_SIZE):
-        params = GaitParams()
-        params.gait_frequency = 1.0 + np.random.rand() * 1.5
-        params.hip_amplitude = 0.3 + np.random.rand() * 0.6
-        params.knee_amplitude = 0.3 + np.random.rand() * 0.6
-        population.append(params)
-    
-    best_fitness = float('-inf')
-    best_params = population[0]
-    
-    # NEW: Track plateau for diversity injection
-    last_improvement_gen = 0
-    base_mutation_rate = 0.2
-    
-    with _viz_params_lock:
-        _viz_best_params = copy.copy(best_params)
-    
-    generation = 0
-    last_video_gen = -10  # Record video every 10 generations
-    
-    # Load model for video recording (in main process)
-    model_for_video = mujoco.MjModel.from_xml_path("model.xml")
-    
-    # Create process pool
-    with Pool(processes=num_workers) as pool:
-        while True:
-            generation += 1
-            training_stats["generation"] = generation
-            training_stats["evaluating"] = POPULATION_SIZE
-            
-            gen_start = time.time()
-            
-            # Parallel evaluation - convert params to dicts for pickling
-            params_dicts = [p.to_dict() for p in population]
-            fitness_scores = pool.map(evaluate_gait_worker, params_dicts)
-            
-            gen_time = time.time() - gen_start
-            
-            # Find best in this generation
-            improved = False
-            for i, fitness in enumerate(fitness_scores):
-                if fitness > best_fitness:
-                    best_fitness = fitness
-                    best_params = copy.copy(population[i])
-                    training_stats["best_fitness"] = best_fitness
-                    last_improvement_gen = generation
-                    improved = True
-                    
-                    with _viz_params_lock:
-                        _viz_best_params = copy.copy(best_params)
-                    
-                    # Save new best parameters
-                    save_best_params(best_params, best_fitness, generation)
-                    
-                    print(f"Gen {generation}: New best! Fitness = {best_fitness:.3f}")
-            
-            # Log this generation
-            gens_since_improvement = generation - last_improvement_gen
-            gen_log = {
-                "generation": generation,
-                "best_fitness": best_fitness,
-                "avg_fitness": float(np.mean(fitness_scores)),
-                "min_fitness": float(np.min(fitness_scores)),
-                "max_fitness": float(np.max(fitness_scores)),
-                "eval_time_seconds": gen_time,
-                "evals_per_second": POPULATION_SIZE / gen_time,
-                "best_params": asdict(best_params),
-                "gens_since_improvement": gens_since_improvement,
-                "timestamp": datetime.now().isoformat()
-            }
-            training_log.append(gen_log)
-            
-            # Save training log every generation
-            save_training_log(training_log)
-            
-            # Record video every 10 generations or on first gen
-            if generation == 1 or generation - last_video_gen >= 10:
-                record_video(model_for_video, best_params, generation)
-                last_video_gen = generation
-            
-            # Evolution with adaptive mutation
-            sorted_indices = np.argsort(fitness_scores)[::-1]
-            num_survivors = max(2, POPULATION_SIZE // 3)
-            survivors = [population[i] for i in sorted_indices[:num_survivors]]
-            
-            # NEW: Adaptive mutation rate - increase when stuck
-            if gens_since_improvement > 50:
-                mutation_rate = min(0.5, base_mutation_rate * (1 + gens_since_improvement / 100))
-            else:
-                mutation_rate = max(0.05, base_mutation_rate - best_fitness * 0.005)
-            
-            new_population = [copy.copy(best_params)]
-            
-            # NEW: Inject random individuals when stuck (10% of population)
-            if gens_since_improvement > 100 and gens_since_improvement % 50 == 0:
-                print(f"  Injecting diversity (stuck for {gens_since_improvement} gens, mutation={mutation_rate:.3f})")
-                for _ in range(POPULATION_SIZE // 10):
-                    random_params = GaitParams()
-                    random_params.gait_frequency = 0.5 + np.random.rand() * 2.0  # 0.5-2.5 Hz
-                    random_params.hip_amplitude = 0.2 + np.random.rand() * 0.8
-                    random_params.knee_amplitude = 0.2 + np.random.rand() * 0.8
-                    random_params.ankle_amplitude = np.random.rand() * 0.6
-                    random_params.phase_offset = math.pi + (np.random.rand() - 0.5) * 0.5
-                    random_params.knee_offset = (np.random.rand() - 0.5) * 0.4
-                    new_population.append(random_params)
-            
-            while len(new_population) < POPULATION_SIZE:
-                parent = survivors[np.random.randint(len(survivors))]
-                new_population.append(parent.mutate(mutation_rate))
-            
-            population = new_population
-            
-            avg_fitness = np.mean(fitness_scores)
-            print(f"Gen {generation}: Best={best_fitness:.3f}, Avg={avg_fitness:.3f}, "
-                  f"Time={gen_time:.2f}s ({POPULATION_SIZE/gen_time:.1f} evals/sec)")
+    return results
 
-def visualization_thread():
-    """Thread that renders the best walker continuously"""
-    global latest_frame, _viz_best_params
-    
-    print("Starting visualization thread...")
-    model = mujoco.MjModel.from_xml_path("model.xml")
-    data = mujoco.MjData(model)
-    renderer = mujoco.Renderer(model, height=480, width=640)
-    
-    camera = mujoco.MjvCamera()
-    camera.distance = 0.8
-    camera.elevation = -20
-    camera.azimuth = 135
-    
-    sim_time = 0.0
-    last_time = time.time()
-    
-    while True:
-        current_time = time.time()
-        dt = current_time - last_time
-        last_time = current_time
-        
-        # Get current best params
-        with _viz_params_lock:
-            params = copy.copy(_viz_best_params) if _viz_best_params else GaitParams()
-        
-        # Run physics steps to match real time
-        steps = int(dt / model.opt.timestep)
-        steps = max(1, min(steps, 100))
-        
-        for _ in range(steps):
-            apply_gait(data, params, sim_time)
-            mujoco.mj_step(model, data)
-            sim_time += model.opt.timestep
-        
-        # Reset if robot falls or wanders too far
-        pelvis_pos = data.body("pelvis").xpos
-        if pelvis_pos[2] < 0.05 or abs(pelvis_pos[0]) > 2 or abs(pelvis_pos[1]) > 2:
-            mujoco.mj_resetData(model, data)
-            sim_time = 0.0
-        
-        # Camera follows robot
-        camera.lookat = data.body("pelvis").xpos.copy()
-        
-        # Render
-        renderer.update_scene(data, camera=camera)
-        pixels = renderer.render()
-        pixels_bgr = cv2.cvtColor(pixels, cv2.COLOR_RGB2BGR)
-        
-        # Stats overlay
-        stats = training_stats
-        workers = stats.get('workers', 0) if stats else 0
-        text1 = f"Gen: {stats['generation']} | Best Fitness: {stats['best_fitness']:.2f}"
-        text2 = f"Pop: {POPULATION_SIZE} | Workers: {workers} cores"
-        text3 = f"Results: {os.path.basename(RUN_DIR) if RUN_DIR else 'N/A'}"
-        cv2.putText(pixels_bgr, text1, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.putText(pixels_bgr, text2, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        cv2.putText(pixels_bgr, text3, (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        cv2.putText(pixels_bgr, "BEST WALKER", (10, 460), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-        
-        ret, buffer = cv2.imencode('.jpg', pixels_bgr)
-        if ret:
-            with lock:
-                latest_frame = buffer.tobytes()
-        
-        time.sleep(0.033)  # ~30 FPS
 
-def generate_frames():
-    global latest_frame
-    while True:
-        with lock:
-            if latest_frame is None:
-                time.sleep(0.033)
-                continue
-            frame = latest_frame
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-        time.sleep(0.033)
+# ============================================================================
+# WEB VISUALIZATION
+# ============================================================================
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>BeeWalker Experiments</title>
+    <style>
+        body { font-family: Arial; background: #1a1a1a; color: white; margin: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+        .experiment { background: #2a2a2a; padding: 15px; border-radius: 10px; }
+        .experiment h3 { margin: 0 0 10px 0; color: #4CAF50; }
+        img { width: 100%; border-radius: 5px; }
+        .stats { font-size: 14px; color: #aaa; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h1>🐝 BeeWalker 24-Hour Training</h1>
+    <div class="grid">
+        {% for name in experiments %}
+        <div class="experiment">
+            <h3>{{ name }}</h3>
+            <img src="/feed/{{ name }}" />
+            <div class="stats" id="stats-{{ name }}">Loading...</div>
+        </div>
+        {% endfor %}
+    </div>
+    <script>
+        setInterval(() => {
+            fetch('/stats').then(r => r.json()).then(data => {
+                for (let name in data) {
+                    let el = document.getElementById('stats-' + name);
+                    if (el) el.innerText = `Steps: ${(data[name].timesteps/1000).toFixed(0)}k | Best: ${data[name].best_reward.toFixed(1)}`;
+                }
+            });
+        }, 2000);
+    </script>
+</body>
+</html>
+"""
 
 @app.route('/')
 def index():
-    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    return render_template_string(HTML_TEMPLATE, experiments=list(REWARD_CONFIGS.keys()))
+
+@app.route('/feed/<name>')
+def feed(name):
+    def generate():
+        while True:
+            with frame_lock:
+                frame = experiment_frames.get(name)
+            if frame:
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            time.sleep(0.1)
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/stats')
+def stats():
+    with frame_lock:
+        return json.dumps(experiment_stats)
+
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(description="BeeWalker 24-Hour Training")
+    parser.add_argument("--phase", type=int, default=0, help="Run specific phase (1-4), 0=all")
+    parser.add_argument("--quick", action="store_true", help="Quick test mode (1M steps)")
+    parser.add_argument("--config", type=str, help="Run single config by name")
+    parser.add_argument("--no-viz", action="store_true", help="Disable web visualization")
+    parser.add_argument("--parallel", type=int, default=2, help="Max parallel experiments")
+    args = parser.parse_args()
+    
+    # Create results directory
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_dir = Path(__file__).parent / "results" / f"sweep_{timestamp}"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    
+    print("="*60)
+    print("🐝 BeeWalker 24-Hour Training Suite")
+    print("="*60)
+    print(f"Results directory: {base_dir}")
+    print(f"Parallel experiments: {args.parallel}")
+    
+    # Adjust timesteps for quick mode
+    configs = REWARD_CONFIGS.copy()
+    if args.quick:
+        print("Quick mode: 1M steps per config")
+        for cfg in configs.values():
+            cfg.total_timesteps = 1_000_000
+    
+    # Single config mode
+    if args.config:
+        if args.config not in configs:
+            print(f"Unknown config: {args.config}")
+            print(f"Available: {list(configs.keys())}")
+            return
+        configs = {args.config: configs[args.config]}
+    
+    # Start web server
+    if not args.no_viz:
+        flask_thread = threading.Thread(
+            target=lambda: app.run(host='0.0.0.0', port=1306, threaded=True, use_reloader=False),
+            daemon=True
+        )
+        flask_thread.start()
+        print(f"\n📺 Web dashboard: http://127.0.0.1:1306\n")
+    
+    # Run experiments
+    print(f"\nRunning {len(configs)} experiments: {list(configs.keys())}\n")
+    
+    if args.parallel == 1:
+        # Sequential execution
+        all_results = {}
+        for name, config in configs.items():
+            all_results[name] = run_experiment(name, config, base_dir)
+    else:
+        # Parallel execution
+        all_results = run_parallel_experiments(configs, base_dir, max_parallel=args.parallel)
+    
+    # Summary
+    print("\n" + "="*60)
+    print("EXPERIMENT SUMMARY")
+    print("="*60)
+    for name, results in all_results.items():
+        if "error" in results:
+            print(f"  {name}: FAILED - {results['error']}")
+        else:
+            print(f"  {name}: Best reward = {results['best_mean_reward']:.2f}")
+    
+    # Find best
+    best_name = max(all_results.keys(), key=lambda k: all_results[k].get('best_mean_reward', float('-inf')))
+    print(f"\n🏆 Best experiment: {best_name}")
+    print(f"   Results saved to: {base_dir}")
+
 
 if __name__ == "__main__":
-    # Initialize shared state for multiprocessing
-    init_shared_state()
-    
-    # Initialize results directory for this run
-    init_run_directory()
-    
-    # Start training in background
-    train_t = threading.Thread(target=training_thread, daemon=True)
-    train_t.start()
-    
-    # Start visualization in background
-    viz_t = threading.Thread(target=visualization_thread, daemon=True)
-    viz_t.start()
-    
-    print(f"Starting Training Viewer on port 1306...")
-    print(f"Using {cpu_count()} CPU cores for parallel evaluation")
-    print("Watch your robot learn to walk at http://127.0.0.1:1306")
-    app.run(host='0.0.0.0', port=1306, threaded=True)
+    main()

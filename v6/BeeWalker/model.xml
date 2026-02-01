@@ -63,6 +63,8 @@
         <!-- Eyes/Front indicator -->
         <geom type="cylinder" size="0.005 0.005" pos="0.03 0.02 0.02" euler="0 90 0" rgba="0 0 0 1"/>
         <geom type="cylinder" size="0.005 0.005" pos="0.03 -0.02 0.02" euler="0 90 0" rgba="0 0 0 1"/>
+        <!-- IMU sensor site (MPU-6050 location) -->
+        <site name="imu_site" pos="0 0 0" size="0.005"/>
       </body>
 
       <!-- ================= LEFT LEG (Y+) ================= -->
@@ -191,5 +193,15 @@
              ctrllimited="true" ctrlrange="-1.57 1.57"
              forcelimited="true" forcerange="-1.1 1.1"/>
   </actuator>
+
+  <sensor>
+    <!-- IMU sensors (simulating MPU-6050) -->
+    <accelerometer name="imu_accel" site="imu_site"/>
+    <gyro name="imu_gyro" site="imu_site"/>
+    <!-- Additional sensors for observations -->
+    <framequat name="pelvis_orientation" objtype="body" objname="pelvis"/>
+    <frameangvel name="pelvis_angvel" objtype="body" objname="pelvis"/>
+    <framexaxis name="pelvis_xaxis" objtype="body" objname="pelvis"/>
+  </sensor>
 
 </mujoco>
