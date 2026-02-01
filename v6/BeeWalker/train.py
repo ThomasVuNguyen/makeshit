@@ -161,7 +161,7 @@ class GaitParams:
     
     def mutate(self, mutation_rate: float = 0.2) -> 'GaitParams':
         new_params = copy.copy(self)
-        new_params.gait_frequency = max(0.5, self.gait_frequency + np.random.randn() * mutation_rate)
+        new_params.gait_frequency = np.clip(self.gait_frequency + np.random.randn() * mutation_rate, 0.5, 3.0)  # Max 3Hz for realistic walking
         new_params.hip_amplitude = np.clip(self.hip_amplitude + np.random.randn() * mutation_rate, 0.1, 1.2)
         new_params.knee_amplitude = np.clip(self.knee_amplitude + np.random.randn() * mutation_rate, 0.1, 1.2)
         new_params.ankle_amplitude = np.clip(self.ankle_amplitude + np.random.randn() * mutation_rate, 0.0, 0.8)
@@ -192,6 +192,11 @@ def evaluate_gait_worker(params_dict: dict, duration: float = 4.0) -> float:
     Worker function for parallel evaluation.
     Takes a dict (for pickling) and returns fitness score.
     Each worker loads its own model instance.
+    
+    Improved fitness function with:
+    - Frequency penalty for unrealistic speeds
+    - Foot alternation reward for actual walking
+    - Energy efficiency penalty
     """
     # Load model in worker process (each worker has its own)
     model = mujoco.MjModel.from_xml_path("model.xml")
@@ -209,6 +214,13 @@ def evaluate_gait_worker(params_dict: dict, duration: float = 4.0) -> float:
     joint_mins = np.full(6, float('inf'))
     joint_maxs = np.full(6, float('-inf'))
     
+    # NEW: Track foot alternation for walking quality
+    foot_alternation_sum = 0.0
+    total_ctrl_effort = 0.0
+    prev_left_foot_z = 0.0
+    prev_right_foot_z = 0.0
+    step_count = 0
+    
     while sim_time < duration:
         apply_gait(data, params, sim_time)
         mujoco.mj_step(model, data)
@@ -222,6 +234,22 @@ def evaluate_gait_worker(params_dict: dict, duration: float = 4.0) -> float:
         # Track joint range of motion
         joint_mins = np.minimum(joint_mins, data.ctrl[:6])
         joint_maxs = np.maximum(joint_maxs, data.ctrl[:6])
+        
+        # NEW: Track foot positions for alternation metric
+        left_foot_z = data.body("left_foot").xpos[2]
+        right_foot_z = data.body("right_foot").xpos[2]
+        foot_alternation_sum += abs(left_foot_z - right_foot_z)
+        
+        # Detect step transitions (foot going up then down)
+        if height_samples > 1:
+            if (left_foot_z > prev_left_foot_z + 0.005) or (right_foot_z > prev_right_foot_z + 0.005):
+                step_count += 1
+        
+        prev_left_foot_z = left_foot_z
+        prev_right_foot_z = right_foot_z
+        
+        # NEW: Track control effort for energy penalty
+        total_ctrl_effort += np.sum(np.abs(data.ctrl[:6]))
     
     end_pos = data.body("pelvis").xpos.copy()
     
@@ -234,16 +262,40 @@ def evaluate_gait_worker(params_dict: dict, duration: float = 4.0) -> float:
     joint_ranges = joint_maxs - joint_mins
     avg_joint_activity = np.mean(joint_ranges)
     
-    # Fitness components
+    # NEW: Average foot alternation (higher = more stepping motion)
+    avg_foot_alternation = foot_alternation_sum / max(height_samples, 1)
+    avg_ctrl_effort = total_ctrl_effort / max(height_samples, 1)
+    
+    # ===== FITNESS COMPONENTS =====
+    
+    # Core locomotion rewards
     distance_bonus = forward_distance * 10        # Reward forward distance
     speed_bonus = max(0, speed) * 5               # Reward faster walking
     height_bonus = max(0, avg_height - 0.1) * 2   # Reward staying upright
-    activity_bonus = avg_joint_activity * 3       # Reward dynamic movement!
-    fall_penalty = -5.0 if min_height < 0.08 else 0
-    lateral_drift = abs(end_pos[1] - start_pos[1])
-    drift_penalty = -lateral_drift * 0.5
+    activity_bonus = avg_joint_activity * 2       # Reward dynamic movement (reduced weight)
     
-    return distance_bonus + speed_bonus + height_bonus + activity_bonus + fall_penalty + drift_penalty
+    # NEW: Walking quality rewards
+    alternation_bonus = avg_foot_alternation * 20  # Strong reward for stepping motion!
+    step_bonus = min(step_count * 0.02, 2.0)       # Reward actual steps (capped)
+    
+    # Penalties
+    fall_penalty = -10.0 if min_height < 0.08 else 0  # Increased fall penalty
+    lateral_drift = abs(end_pos[1] - start_pos[1])
+    drift_penalty = -lateral_drift * 2.0              # Increased drift penalty
+    
+    # NEW: Frequency penalty - discourage unrealistically fast gaits
+    frequency_penalty = max(0, params.gait_frequency - 2.0) * -5.0  # Penalize >2Hz
+    
+    # NEW: Energy efficiency penalty
+    energy_penalty = -avg_ctrl_effort * 0.05  # Small penalty for excessive effort
+    
+    total_fitness = (
+        distance_bonus + speed_bonus + height_bonus + activity_bonus +
+        alternation_bonus + step_bonus +
+        fall_penalty + drift_penalty + frequency_penalty + energy_penalty
+    )
+    
+    return total_fitness
 
 # Global variable in main process to hold best params for visualization
 _viz_best_params = None
@@ -278,6 +330,10 @@ def training_thread():
     best_fitness = float('-inf')
     best_params = population[0]
     
+    # NEW: Track plateau for diversity injection
+    last_improvement_gen = 0
+    base_mutation_rate = 0.2
+    
     with _viz_params_lock:
         _viz_best_params = copy.copy(best_params)
     
@@ -303,11 +359,14 @@ def training_thread():
             gen_time = time.time() - gen_start
             
             # Find best in this generation
+            improved = False
             for i, fitness in enumerate(fitness_scores):
                 if fitness > best_fitness:
                     best_fitness = fitness
                     best_params = copy.copy(population[i])
                     training_stats["best_fitness"] = best_fitness
+                    last_improvement_gen = generation
+                    improved = True
                     
                     with _viz_params_lock:
                         _viz_best_params = copy.copy(best_params)
@@ -318,6 +377,7 @@ def training_thread():
                     print(f"Gen {generation}: New best! Fitness = {best_fitness:.3f}")
             
             # Log this generation
+            gens_since_improvement = generation - last_improvement_gen
             gen_log = {
                 "generation": generation,
                 "best_fitness": best_fitness,
@@ -327,6 +387,7 @@ def training_thread():
                 "eval_time_seconds": gen_time,
                 "evals_per_second": POPULATION_SIZE / gen_time,
                 "best_params": asdict(best_params),
+                "gens_since_improvement": gens_since_improvement,
                 "timestamp": datetime.now().isoformat()
             }
             training_log.append(gen_log)
@@ -339,15 +400,34 @@ def training_thread():
                 record_video(model_for_video, best_params, generation)
                 last_video_gen = generation
             
-            # Evolution
+            # Evolution with adaptive mutation
             sorted_indices = np.argsort(fitness_scores)[::-1]
             num_survivors = max(2, POPULATION_SIZE // 3)
             survivors = [population[i] for i in sorted_indices[:num_survivors]]
             
+            # NEW: Adaptive mutation rate - increase when stuck
+            if gens_since_improvement > 50:
+                mutation_rate = min(0.5, base_mutation_rate * (1 + gens_since_improvement / 100))
+            else:
+                mutation_rate = max(0.05, base_mutation_rate - best_fitness * 0.005)
+            
             new_population = [copy.copy(best_params)]
+            
+            # NEW: Inject random individuals when stuck (10% of population)
+            if gens_since_improvement > 100 and gens_since_improvement % 50 == 0:
+                print(f"  Injecting diversity (stuck for {gens_since_improvement} gens, mutation={mutation_rate:.3f})")
+                for _ in range(POPULATION_SIZE // 10):
+                    random_params = GaitParams()
+                    random_params.gait_frequency = 0.5 + np.random.rand() * 2.0  # 0.5-2.5 Hz
+                    random_params.hip_amplitude = 0.2 + np.random.rand() * 0.8
+                    random_params.knee_amplitude = 0.2 + np.random.rand() * 0.8
+                    random_params.ankle_amplitude = np.random.rand() * 0.6
+                    random_params.phase_offset = math.pi + (np.random.rand() - 0.5) * 0.5
+                    random_params.knee_offset = (np.random.rand() - 0.5) * 0.4
+                    new_population.append(random_params)
+            
             while len(new_population) < POPULATION_SIZE:
                 parent = survivors[np.random.randint(len(survivors))]
-                mutation_rate = max(0.05, 0.3 - best_fitness * 0.01)
                 new_population.append(parent.mutate(mutation_rate))
             
             population = new_population
