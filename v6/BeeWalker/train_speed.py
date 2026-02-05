@@ -2,6 +2,8 @@
 Continuous training for speed config with live streaming.
 Runs until Ctrl+C, saves checkpoints every 1M steps.
 Watch at http://127.0.0.1:1306
+
+FIX: Added log_std clamping to prevent NaN from exploding std.
 """
 import os
 os.environ['MUJOCO_GL'] = 'egl'
@@ -15,12 +17,48 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.utils import set_random_seed
+from stable_baselines3.common.policies import ActorCriticPolicy
+import torch
+import torch.nn as nn
 import numpy as np
 import cv2
 import imageio
 
 from bee_walker_env import BeeWalkerEnv
 from train import ConfigurableRewardEnv, REWARD_CONFIGS
+
+
+class StableActorCriticPolicy(ActorCriticPolicy):
+    """
+    Custom policy that clamps log_std to prevent numerical instability.
+    log_std is clamped to [-20, 2] which corresponds to std in [~2e-9, ~7.4].
+    This prevents the exploding std issue that caused NaN values.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Clamp initial log_std to a tighter range for stability
+        with torch.no_grad():
+            self.log_std.data.clamp_(-2.0, 0.0)
+    
+    def forward(self, obs, deterministic=False):
+        """Override forward to clamp log_std before action distribution."""
+        # Tighter clamp: std range [0.14, 2.7] instead of [~0, 7.4]
+        with torch.no_grad():
+            self.log_std.data.clamp_(-2.0, 1.0)
+        return super().forward(obs, deterministic)
+    
+    def evaluate_actions(self, obs, actions):
+        """Override to clamp log_std during evaluation."""
+        with torch.no_grad():
+            self.log_std.data.clamp_(-2.0, 1.0)
+        return super().evaluate_actions(obs, actions)
+    
+    def _get_action_dist_from_latent(self, latent_pi):
+        """Override to clamp log_std when getting action distribution."""
+        with torch.no_grad():
+            self.log_std.data.clamp_(-2.0, 1.0)
+        return super()._get_action_dist_from_latent(latent_pi)
 
 # Use speed config
 config = REWARD_CONFIGS["speed"]
@@ -148,9 +186,21 @@ def main():
     env = SubprocVecEnv([make_env(i) for i in range(n_envs)])
     eval_env = ConfigurableRewardEnv(config, render_mode="rgb_array")
     
-    prev_checkpoint = "results/sweep_20260201_170713/speed/checkpoints/speed_10000000_steps"
+    prev_checkpoint = "results/speed_continuous_20260203_105649/checkpoints/speed_99000000_steps"
     print(f"\nLoading from: {prev_checkpoint}")
-    model = PPO.load(prev_checkpoint, env=env, device="cpu")
+    model = PPO.load(
+        prev_checkpoint, 
+        env=env, 
+        device="cpu",
+        custom_objects={"policy_class": StableActorCriticPolicy}
+    )
+    
+    # CRITICAL: Reset the corrupted log_std from the checkpoint
+    # The old checkpoint had log_std values that exploded to ~6e17
+    with torch.no_grad():
+        print(f"Old log_std: {model.policy.log_std.data}")
+        model.policy.log_std.data.clamp_(-2.0, 0.5)  # Reset to reasonable range
+        print(f"Reset log_std to: {model.policy.log_std.data}")
     
     stream_cb = StreamingCallback(eval_env, run_dir / "videos", video_freq=1_000_000)
     checkpoint_cb = CheckpointCallback(
