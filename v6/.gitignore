@@ -1,1 +1,5 @@
 BeeWalker/venv/
+BeeWalker/results/2026*/
+BeeWalker/results/speed*/
+BeeWalker/results/sweep*/
+BeeWalker/__pycache__/
