@@ -1,28 +1,58 @@
-# BeeWalker Simulation
+# 🐝 BeeWalker
 
-A rigorous MJCF (MuJoCo) simulation of a 6-DOF bipedal robot powered by MG996R servos.
+Bipedal walking robot trained with reinforcement learning in MuJoCo.
+
+**Goal:** Rigorously simulate the bipedal robot (6 joints, MG996R servos, RP2040) in MuJoCo, iteratively refining the MJCF model to match the physical hardware's dynamics and control logic — then train a deployable walking policy.
 
 ## Structure
-- `model.xml`: The MuJoCo robot definition (Iteratively refined to match hardware).
-- `web_view.py`: Browser-based viewer with camera tracking and joint testing.
-- `simulate.py`: Headless/Passive viewer script.
+
+```
+BeeWalker/
+├── env/                       # Core simulation
+│   ├── model.xml              # MuJoCo robot model (MJCF)
+│   └── bee_walker_env.py      # Gymnasium environment (22-dim obs, 6-dim action)
+├── training/                  # Training scripts
+│   ├── train_lstm.py          # LSTM training (RecurrentPPO) ← active
+│   └── train.py               # Multi-experiment reward sweep
+├── tools/                     # Utilities
+│   ├── upload_hf.py           # Upload results to HuggingFace
+│   ├── simulate.py            # Run a trained model
+│   ├── plot_training.py       # Plot training curves
+│   └── web_view.py            # Web-based model viewer
+├── archive/                   # Old/experimental approaches
+├── analysis/                  # Training analysis & docs
+│   └── lstm.md                # Walking style evolution analysis
+└── results/                   # Training runs (stored on HuggingFace)
+```
 
 ## Quick Start
 
-1. **Install Dependencies:**
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   ```
+```bash
+# Train (launches dashboard at :1306)
+python3 training/train_lstm.py
 
-2. **Run Web Viewer:**
-   ```bash
-   python3 web_view.py
-   ```
-   Open `http://localhost:5000` to see the robot.
+# Resume from checkpoint
+python3 training/train_lstm.py --resume results/<run>/checkpoints/lstm_500000_steps.zip
 
-## Hardware Specs
-- **Servos:** MG996R (Black)
-- **Brackets:** Standard U-Brackets (Purple)
-- **Geometry:** 65mm leg segments, 25mm x 30mm feet.
+# Upload results to HuggingFace
+python3 tools/upload_hf.py --latest
+```
+
+## Results
+
+Training results are stored on HuggingFace: [ThomasTheMaker/BeeWalker-v6](https://huggingface.co/ThomasTheMaker/BeeWalker-v6)
+
+## Robot Specs
+
+| Component | Details |
+|-----------|---------|
+| Servos | 6× MG996R (hip, knee, ankle × 2 legs) |
+| Controller | RP2040 (Raspberry Pi Pico) |
+| Simulation | MuJoCo, 500Hz physics, 50Hz policy |
+| Algorithm | RecurrentPPO (LSTM, hidden_size=32) |
+| Model Size | ~4KB (deployable on microcontroller) |
+
+## Related
+
+- **documentation/** — Joint & design docs (in repo root)
+- **knowledge/** — Interview notes and research

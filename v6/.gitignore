@@ -1,3 +1,19 @@
-BeeWalker/venv/
+# Results (stored on HuggingFace, not git)
 BeeWalker/results/
-BeeWalker/__pycache__/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+BeeWalker/venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~

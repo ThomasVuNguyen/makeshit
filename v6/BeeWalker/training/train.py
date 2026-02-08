@@ -10,7 +10,12 @@ Usage:
     python train.py --quick            # Quick test (1M steps per config)
 """
 import os
+import sys
 os.environ['MUJOCO_GL'] = 'egl'
+
+# Add BeeWalker root to path for cross-package imports
+_BEEWALKER_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _BEEWALKER_ROOT)
 
 import argparse
 import time
@@ -30,7 +35,7 @@ from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.utils import set_random_seed
 
-from bee_walker_env import BeeWalkerEnv
+from env.bee_walker_env import BeeWalkerEnv
 
 
 # ============================================================================
@@ -532,7 +537,7 @@ def main():
     
     # Create results directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_dir = Path(__file__).parent / "results" / f"sweep_{timestamp}"
+    base_dir = Path(_BEEWALKER_ROOT) / "results" / f"sweep_{timestamp}"
     base_dir.mkdir(parents=True, exist_ok=True)
     
     print("="*60)

@@ -11,7 +11,12 @@ Usage:
     python train_lstm.py --resume PATH  # Resume from checkpoint
 """
 import os
+import sys
 os.environ['MUJOCO_GL'] = 'egl'
+
+# Add BeeWalker root to path for cross-package imports
+_BEEWALKER_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _BEEWALKER_ROOT)
 
 import threading
 import time
@@ -32,8 +37,10 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from bee_walker_env import BeeWalkerEnv
-from train import ConfigurableRewardEnv, REWARD_CONFIGS
+BEEWALKER_ROOT = Path(_BEEWALKER_ROOT)
+
+from env.bee_walker_env import BeeWalkerEnv
+from training.train import ConfigurableRewardEnv, REWARD_CONFIGS
 
 
 # Use speed config (best performer from previous training)
@@ -311,7 +318,7 @@ def main():
     args = parser.parse_args()
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dir = Path(f"results/lstm_{timestamp}")
+    run_dir = BEEWALKER_ROOT / f"results/lstm_{timestamp}"
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "videos").mkdir(exist_ok=True)
     (run_dir / "checkpoints").mkdir(exist_ok=True)
