@@ -1,0 +1,227 @@
+Kevin: All right, today we have Lou with us here, an expert in reinforcement learning. She's also the author behind this cool work that allows robots to do backflips. We're going to be covering a lot of cool and exciting topics like RL theory versus application, bridging the sim-to-real gap, simulation environments for RL, deploying RL on custom robots, position versus torque control, resources for learning RL, and then the second half we'll talk about kinematic retargeting applications, generalization in robotics, generalist versus specialist data and training, and finally end it with traditional optimization versus RL.
+
+If you're new here, my name is Kevin. I've been doing robotics and AI for 10 plus years and have lots of resources on my channel. I also have a robotics builder membership where you get deep-dive access to how I build my projects and also resources on my website to help you get started—link down below. Can you give us a quick self-introduction?
+
+Lou: Hi everyone, I'm Luj, I go by Lou. I'm currently an applied scientist at Frontier AI and Robotics Lab at Amazon. I just obtained my PhD last October from MIT under the guidance of Professor Russ Tedrake. I have been working on optimization-based and learning-based methods for robotic manipulation and control, and right now I'm working on humanoid whole-body control.
+
+Kevin: Very nice, very cool topic. I know right now humanoid robots is probably one of the hottest topics, so it's very exciting to have a deeper dive into how some of the reinforcement learning techniques are actually applied in real life and understanding some of the existing challenges that people are dealing with in industry.
+
+So first topic we want to talk about is: I know a lot of times when people are learning RL, there's a lot of theory. But then when people try to apply that in application, sometimes it could be quite different from theory. If you were to give the audience a good overview of what that difference is, how would you describe that?
+
+Lou: Yeah, so I think having a very solid background and foundation in RL theory is actually very rewarding and inspiring for RL practice. I think RL is more than just collecting rewards, but also how do we balance the exploration and exploitation. That is actually embedded in the coefficients and the exploration formulation in the RL theory itself. So, how do we gain some insights from tuning the RL rewards or coefficients from the RL theory? I think is a very interesting and rewarding topic.
+
+Kevin: Okay, so if someone is doing the tuning with all the coefficients, is there a specific example where you could think of where they try to apply that, maybe in simulation, but then when they actually try to deploy it, it's very different? Are you referring to the sim-to-real gap, or just what is a systematic way to tune the RL coefficients and reward in sim?
+
+Lou: I guess more so in terms of the theory. Because a lot of times when someone jumps in and uses a framework like Gymnasium, for example, they have everything set up where a lot of the function calls is kind of like a black box. They would maybe play with the reward structure or maybe they might change the exploration you were saying. For someone who has spent maybe a couple years learning the theory, what edge do they have over someone who doesn't if they're just playing with Gymnasium?
+
+Lou: That's a great question. During the training, we might see some phenomenon like mode collapse. For example, if there is not enough exploration from the agents, the agents will just quickly decay to a single behavior without exploring the environment further, and it can easily get stuck in a local minimum which we don't want as the ideal behavior. In that case, one might have to increase the exploration coefficient to encourage the agent to explore the environments before collapsing to a single mode and doing exploitation afterwards.
+
+Kevin: Okay, so someone who's just playing with the Gymnasium Python library, is that something they would be able to figure out, or is it because if they had no theory, they wouldn't be able to figure it out?
+
+Lou: I think if you yourself do enough of trial and error and change the coefficients here and there, you might be able to bump into some coefficients tuning, or you just do a grid search on all the important coefficients and get a very good intuition afterwards—like which are the most important parameters you should change for the RL training. But if we just start from the fundamentals of the RL training and RL theory itself, most of the time the very common algorithm we're using for RL these days is PPO. There are only a small number of terms in the PPO that are really important that are causing the training to stabilize or destabilize. If we just start from these formulations from the fundamentals, we will be able to have a big picture of what are the important parameters we should tune.
+
+Kevin: So something like doing like a grid search on all the coefficients—do you feel like that's more of an advanced technique that someone would learn maybe only through school, or is that something that someone who's more familiar with the application-only part would also know how to do?
+
+Lou: I think people who are very practical will also come up with this idea.
+
+Kevin: You mentioned PPO. I know that's one of the most common RL models that people are using right now for robotics. Would you say there's a specific reason why people are leaning towards that versus another model, or how they come to decide to use that one?
+
+Lou: Yeah. In locomotion, for example, people use PPO a lot because it's an online policy that is very good at encouraging the training to stay within the distribution. That means the RL algorithm is actually experiencing the same state and action distribution as the agent itself is exploring the environment. For some other more efficient RL algorithms, such as offline RL, they are essentially using different strategies during the policy update versus what the agent is using to explore the environment. That kind of algorithm is cheaper and can be more efficient, but because the policy update and the agent is experiencing different state distributions, during deployment there will be some non-ideal effect called distribution shift which can cause a big gap during deployment and training.
+
+Kevin: So would you say if you were to give a percentage of users that's using PPO versus other models, how would you describe that distribution right now?
+
+Lou: I would say probably 90% of robot locomotion researchers are using PPO.
+
+Kevin: We were talking about the sim-to-real gap; that's like a very big area that people are trying to tackle. I know there's people that try to tackle that problem either by randomizing physical properties of their robots, some people have zero-shot techniques, and also people that try to train on hardware ignoring simulation. In your opinion, what is the best approach to sim-to-real, and maybe you could explain some of the tradeoffs between the methods I mentioned or any other methods you're familiar with?
+
+Lou: That's a great question. Sim-to-real is a very important procedure in our entire robot deployment pipeline. I would say one should start with a reasonably accurate system identification of the robot and then try to randomize a little bit around those nominal values in simulation during training; that's called domain randomization. And then deploy it on the robots and see if there's other mismatch between the sim and real. One can essentially do a loop where you identify the system coefficients of the robots, try to randomize it in sim, deploy it on real, and collect the system rollouts to back-propagate the parameters back to the sim to modify the sim parameters to match the real behavior. That would be the most ideal case.
+
+But also one can train a base policy in simulation which is performing reasonably enough, and then starting from that base policy, do real-world RL. I would say training RL from scratch in the real world is very time-consuming and also can do a lot of damage to the hardware, which can be expensive. We want to minimize the computation time as well as the cost for the entire training and deployment loop.
+
+Kevin: Yeah, that's a good point. On the hardware note, I'm very curious—have you ever encountered any issues where your hardware randomly fails during your RL deployment and you couldn't figure it out, or maybe something that was hard for you to figure out?
+
+Lou: Yeah, so actually that's a very common issue when we're doing hardware experiments. There can be cases when as soon as we start our controller, the robot is just waving their arms wildly. There can be a couple of issues. First of all, there can be the calibration of the IMU is not accurate enough, so it doesn't have an accurate sense of where it is and what its angular and linear velocity is. There can also be a motor that is not producing enough torque. For example, if we're doing very agile behavior like climbing up a very high platform or jumping off a cliff, sometimes in simulation, although we are able to train a policy for the robot to do that, the motor curve is actually different in reality. On the hardware, the motor will not be able to produce as much torque as needed for such an agile behavior. That might also cause some failure on hardware.
+
+Kevin: Since motors typically have like a rated torque and peak torque, is that something you can cap accurately in simulation, or is it pretty hard to set those constraints?
+
+Lou: Yeah, I think it's pretty hard. If we're just using the default parameters from the robot seller, I would say it's often not as accurate. If one wants to do a very accurate calibration, I think one has to run a lot of experiments with the current and torque and speed of the motor to record its behavior. And also there's another caveat: when we do more experiments, the robot itself essentially wears off, so that relationship between motor current, speed, and torque will actually change over time, which is even harder to model in simulation. I think the best we can do is try to add more safety guards in simulation, try to penalize a little bit more of the torque limits in simulation so that when it transfers to real, it won't hit its actual limit.
+
+Kevin: I see. So in theory, let's say someone were to be very conservative and say they assume the peak torque is 50% of the manufacturer's rated torque—do you think they would still face any of these challenges, or would that be pretty safe?
+
+Lou: I think in that case it's more promising to transfer to real without hitting any hardware issues, but that of course limits the range of motion the robot can do. If we wanted to do the backflip or jumping very high, I think it will be more challenging.
+
+Kevin: Yeah, it's definitely a good point because you're pretty much over-constraining your robot. So far, I know a lot of your work has been on deploying it on the Unitree robots. If someone were to try to take their techniques and deploy on their own custom robot, what do you think would be some techniques or strategies they would have to use or understand to do something like that?
+
+Lou: That's a great question. Starting from the fundamental level, one has to do a very careful CAD to measure, for example, the inertia and mass of the entire robot as well as the motors, and do a careful calibration of all the sensors including IMU, encoders, and if one has depth cameras, the cameras as well. And then one has to have a very robust low-level controller which translates the higher-level RL policy into lower-level, higher-frequency torque control, and that has to be very reliable in terms of both the magnitude as well as the frequency the command is sent to the motor. Then one has to build a reasonable enough simulation model in simulation so that one can start an RL training session with a good model, so that later when people want to transfer it to real, there's a smaller sim-to-real gap.
+
+Kevin: For the system ID that you talked about, are there generally common open-source methods that people like to leverage or do they try to make their own?
+
+Lou: I think it can be case-dependent. For the mass, you can just take a scale to measure the mass. I think the most important piece of the system ID is actually the motor or rotational inertia; that is actually very important, we found out that's one of the most important pieces for our sim-to-real pipeline. For others, I think there are standardized procedures online one can resort to, but I think for each robot they have their own advantages and disadvantages. One should be careful about characterizing if it's the motor curve that is really important or if it's the inertia that is causing a lot of trouble for the sim-to-real deployment.
+
+Kevin: In terms of the accuracy of your calibration, how accurate do you think one has to be to have good enough results when they deploy their RL models?
+
+Lou: Yeah, I think it's again case by case. I would have to say as accurate as one would get, so that during the training phase, when doing domain randomization, you can randomize only in a very small range. A very important thing is that maybe during your calibration or system ID, you do multiple rounds and take the average, and also know the standard deviation of your value so that you can use the mean and the standard deviation to characterize the range for your domain randomization.
+
+Kevin: You mentioned frequency earlier. Can you dive into a little bit more details about what you were saying for the frequency part?
+
+Lou: Sure. So the higher-level RL policy is running at 50 Hz, and the lower-level torque command is running at 500 Hz. So the robot itself has to consume a relatively higher frequency of torque command while on the higher level the RL training is spitting out 50 Hz PD targets for the SDK to be converted into the motor commands.
+
+Kevin: How is that typically determined—these values 50 and 500? Is that something that was figured out through experiment or was it through theory? How did you guys come to this conclusion?
+
+Lou: I think it's most of the time by convention. For example, Unitree SDK would support something like 500 Hz torque commands. For the RL policy, I think it's mostly trial and error and what other people have been using and has been working reasonably well for them. We will first try the value that is already testified to be working stably.
+
+Kevin: What behavior would you typically see if you went a little bit too high? Say your RL was running at 100 or even 200—what sort of behavior might one see, and what if they went too low, like 10 Hz?
+
+Lou: I think there's a tradeoff between the compute time and the RL policy frequency. Higher is probably better in some sense that we can react to the environment more quickly, but if the policy is running at a higher frequency then it consumes more memory and power on the GPU. Sometimes there will be latency problems where the policy command cannot actually be sent in real-time to the lower-level motor command. If we're running it at a very low frequency, then there's the problem that we're not reacting to the environment fast enough. If the robot is falling down and it cannot send the policy command fast enough, it might not be able to recover immediately.
+
+Kevin: How about in terms of the model or robot stability—have you seen any trends in the stability whether it's higher or lower frequency?
+
+Lou: Yeah, that's a great question. Our intuition is that the lower the frequency, the more stable the training is because we are actually exploring on a smoother manifold. Versus if it's a higher frequency, one might be sampling around a smooth curve in a noisy way, so the command is actually pretty zigzag and noisy. That is actually a harder exploration problem in some sense to actually stabilize your robot. I think finding the balance between the smoothness and reactivity is what drives us here for 50 Hz.
+
+Kevin: I see. At 50 Hz, your desired points are kind of spaced apart. In practice, do you think it's good enough to send those points at 50 Hz, or do you need something in between that does interpolation?
+
+Lou: That interpolation is actually on the lower level. We're essentially setting PD position targets for the higher-level RL policy, which is actually implicitly doing torque control using this PD target. We interpolate and translate the position command into a torque command using the PD relationship.
+
+Kevin: So their lower-level controller, would you say is like a position P? You're taking an input as position and then the position P converts it to torque? Do they have a cascaded type controller where there's position, velocity, and current, or is it just position and current?
+
+Lou: The Unitree SDK is kind of like a black box to us. Our best understanding is that they are trying to use the PD relationship to translate the position target into torque commands, but sometimes there are weird behaviors on the robot, so that might be something in the black box not performing as we expected.
+
+Kevin: Most of the experiments you have done was in position control—is that right? Have you guys played with torque control directly from your model?
+
+Lou: Not really. The reason is torque control is much less forgiving and it should be sent at a very high frequency. If there is any imperfection in the command, it will be actually amplified by torque command, versus if it's just PD target, we do an interpolation at a slower frequency that will not be amplified as much as the higher-frequency torque control.
+
+Kevin: I'm just curious, because like when you have a robot arm that you're tuning, if your arm is in the vertical position swinging back and forth versus if the arm is horizontal and swinging up and down, the range of the robot it's in would be very—the gains that were tuned for the different positions would be very different because of the load it's seeing. If you're controlling it in position and I'm assuming you have the same gains for different positions, how does your robot usually still behave with similar response in the different positions?
+
+Lou: Yeah, that's a great question. We are indeed using the same gain, but essentially very small PD gains for all the motors. That essentially decreases the sim-to-real gap because it's like a more gentle response to our command. I think for all of our experiments, even including the wall flip and more agile behavior, these gains work perfectly fine for all the motions.
+
+Kevin: Do you think the RL model somehow can help compensate some of these differences?
+
+Lou: I think both the hardware is getting better, that if we have a small gain they can do reasonably well of sending the right command, and also during the RL training we're like randomly pushing the robots for domain randomization. So even if the gains are not reflecting the actual torque on hardware, when we're randomly pushing the robots in simulation, the robot actually experiences that variation in sim as well. It has been trained to see different motor perturbations during simulation.
+
+Kevin: In your setup when you're doing the simulations, what specific toolsets or framework were you using?
+
+Lou: We are using Isaac Lab as the training framework, which is running on Isaac Sim for the lower-level simulation engine.
+
+Kevin: Is there a reason why you guys went with Isaac Lab or was it like a choice that the team has made already?
+
+Lou: Yeah, so I think it's both because Isaac Lab is highly parallelizable and it has support for distributed training and so on, and it has very good rendering. So later if we want to move on to vision-based RL or locomotion whole-body control, it will have relatively good support for rendering for vision as well.
+
+Kevin: How about with MuJoCo? Is that something you have played with or any thoughts on that as a simulator?
+
+Lou: Yeah, so MuJoCo is higher infidelity for the simulation models, but I think it's relatively slower and it doesn't have as good of the rendering support as Isaac. I want to note that we're using MuJoCo as sim-to-sim validation. That is to say, we are training the RL policies in Isaac and before deploying it directly on the real robot, we actually run that policy in MuJoCo to test if the policy with the higher fidelity dynamics performs well enough. If that's robust enough in MuJoCo, then we deploy it onto the real hardware.
+
+Kevin: Can you go in detail about what you mean by higher fidelity—is it better physics calculation or what?
+
+Lou: Yeah, so MuJoCo supposedly has a more accurate contact modeling. There are different kinds of simulators which have different tradeoffs, mostly the tradeoff between simulation accuracy versus computation speed. I would say Isaac is on the higher throughput end of the spectrum, while MuJoCo is sort of in the middle where it has high enough fidelity and reasonable parallelization. On the other end of the spectrum, I would say Drake is probably one of the most accurate simulators where it is actually solving optimization problems at each time step to simulate the contact dynamics, but it's not GPU supported and it's hard to parallelize. So there is a spectrum of different simulators which have different tradeoffs.
+
+Kevin: When you go from Isaac to MuJoCo, for example, have you had specific experiences where when you did do that sim-to-sim validation where you were able to go back and update your model somehow based on how it performed?
+
+Lou: I would say because we are doing system ID well enough and we randomize reasonably in training in Isaac Sim, the dynamics gap between Isaac and MuJoCo in our current pipeline is not that huge. But the sim-to-sim pipeline also helps us debug some other problems. For example, what should be the camera latency if we're adding the vision into the loop? Since we're doing system ID carefully enough and for locomotion there is not too much a gap of dynamics between Isaac and MuJoCo, most of the time the dynamics gap is not as big, but rather some edge cases that we were not able to detect in Isaac. For example, what if the vision latency in MuJoCo can be more realistic than Isaac, so that we can detect what is the right vision latency we should add in the training process to actually compensate for this discrepancy?
+
+Kevin: You're saying like MuJoCo has longer latency, is that what you mean by more accurate?
+
+Lou: In training when we render the vision in Isaac, the simulation will actually pause to let the simulator render the vision. But during the deployment in MuJoCo, when we're actually running the policy, it will actually not wait for the simulator to render the image. So there will be some sort of latency in that regard.
+
+Kevin: Okay, so is it possible to create a fake latency in Isaac to simulate that behavior?
+
+Lou: Yeah, so what we do is we create a buffer of the sensor readings and we do a kind of system ID on real to see what the latency is for each sensor, and then we chose the reading in the buffer which is around that time range.
+
+Kevin: If you're able to do that, then technically would you still have to do this MuJoCo verification if you're able to create a very realistic latency in Isaac, or do you think that step would still be necessary?
+
+Lou: Yeah, I think another advantage of MuJoCo in addition to verifying that latency is running the deployment code in simulation first. It might be kind of complicated to run the deployment code in Isaac directly, but in MuJoCo it's a much more direct interface for us to deploy our inference code. In addition to testing the vision discrepancy dynamics gap, there's also the layer of we are testing our deployment code in simulation.
+
+Kevin: What's the main challenge with running inference in Isaac?
+
+Lou: I think there is just a lot of abstraction layers in Isaac and it's less direct of an interface than MuJoCo for us to deploy our inference code.
+
+Kevin: Because in MuJoCo they let you like send direct position or torque commands just based on how you set up your XML file right? So it's like a pretty straightforward way to command it. That's kind of what you mean?
+
+Lou: Mhm, okay.
+
+Kevin: Cool. So in general, if someone is trying to learn more about RL, whether it's like the application side or theory side, what would you say is a good starting point for someone to get into the topic?
+
+Lou: For the theory side, Richard Sutton's "Introduction to Reinforcement Learning" is one of the primer books. From a controls perspective, Dimitri Bertsekas's "Dynamic Programming and Optimal Control" would be a very good way to explain the RL concept. There are also some Berkeley courses taught by Professor Sergey Levine on reinforcement learning and deep learning that one can also watch online. So I think for the theory side there are a lot of resources. For the practical side, I think it's reading others' codebase for RL deployment and trying to adapt them for one's own use case, so that one can get more and more hands-on experience on the training and deployment.
+
+Kevin: Very nice, those are some really good useful resources. I know we'll probably spend the second part talking about some of your specific applications that you worked on. So, you know, a lot of the new cutting-edge work is probably the research that you've done on like retargeting. So maybe we could start looking into that topic right now and maybe for those that have never heard of kinematic retargeting, can you give like a high-level overview of exactly what that is and what problem you're trying to solve?
+
+Lou: So the kinematic retargeting is basically transforming human motions onto robot motions. Since the humanoid robot looks very much like the human, we want to reuse the human motions to direct our search for how we command the robot. Say here's a task of a human picking up a box and we want to transfer the same motions onto the robot picking up the box. There are some standard ways of doing so, such as defining some key points on the robot and the human and trying to match the absolute position between the two. But there are some problems of doing so—for example, because the humanoid can be much shorter than the human, this direct scaling and translation matching will result in some penetration. Here we're using some technique to avoid this issue.
+
+Kevin: Penetration you mean like going into itself, is that what you mean?
+
+Lou: Yes. Let me try to show a direct example. The keypoint matching is the technique I was describing as the standardized technique which is essentially choosing some key points on the human and trying to match the same set of semantic key points on the robot to the absolute position of these key points on the human. Because the humanoid can be much shorter than the human, directly matching this absolute position can result in some penetration with the object. This is essentially a very direct result of the different scale of human and the robot. Say imagine the human is like 1.8 meters while the humanoid we're using is 1.3 meters; picking up the same box will actually result in different relative scales for the human and the robot. Directly doing this key point matching will result in some artifacts like penetration.
+
+Kevin: You talk about going from key points from a human. Is the main idea to get videos of people or what's the main—are you trying to utilize the whole internet data to do some of this? What's the bigger picture idea that this method would end up being used for?
+
+Lou: That's a great question. Currently we're using motion capture data, which is essentially a human demonstrator wearing a very specialized mocap suit in a specialized room with cameras that can accurately identify the position of the human. But this sort of data is very expensive and ultimately we want to utilize the videos of the entire internet to teach the robots to do things. But there are some challenges in this regard: the 3D reconstruction of human and objects from video is a very non-trivial research topic. Some of the problems involve like the human root will kind of be floating in the air and going back and forth, so how to extract robust, reliable, and realistic data from the video is a very challenging and interesting research topic.
+
+Kevin: I see. So I guess you guys are kind of assuming that the video-to-model part is handled and you're just focusing more on if you already have the key points, is that right?
+
+Lou: Exactly, yeah.
+
+Kevin: You were mentioning, oh, if the robot is smaller, then you're trying to focus on having a bigger human where the key points are bigger to something smaller. Do you think your current method can also work in reverse? If the human is smaller but the robot is bigger, can it also handle those cases? Is it general enough to do that?
+
+Lou: Absolutely, yeah, absolutely. The way our method works is we tried to build something called "Interaction Mesh," which is in addition to defining key points on the human, we also define key points on the object. Let me give a more concrete example: here is a human picking up the box and we want to transfer its motion to the robot picking up the box. As I mentioned, we select some semantically important key points on the human and the set of same key points on the robot. We also define key points on the object and use the same set of key points on the object for the robot as well. Then we build an interaction mesh which is a volumetric structure that captures the relative position information between the human and the object. As we can see, it not only captures the information between the human joints themselves but also how it relates to the object. In this example, the human's right hand is touching the right face of the object and we want the robot's right hand to also touch the right surface of the object. That is actually captured by the graph structure that preserves the relative spatial information in this motion.
+
+Kevin: Is there a minimum number of points you need for the object to have the full understanding of your object?
+
+Lou: That's a really good question. Ideally, we want the contact points between the human and the object. Say in this point there might be two key points which are like the left hand and the right hand touching the surface of the box. But in order to make the algorithm more robust, we actually select more key points than that. We essentially randomly sample like 20 to 50 points on the object to keep the relationship between the robot, human, and the object.
+
+Kevin: Okay, so how well do you think your current method could extend to more deformable or organic-looking objects like a pillow, a teddy bear, or a blanket?
+
+Lou: I think this retargeting method will be directly applicable to all kinds of different objects including deformables. Because essentially we're capturing the relationship between the human and some points on the object, as long as we can define the key points, either it be contact points or it be semantically meaningful key points, our retargeting pipeline can be directly transferred.
+
+Kevin: Very cool. I know a lot of the general trend that we're seeing in robotics is there's still a lot of companies where they have very special models that do very specific tasks, but then there's also companies like Tesla and some other companies that's trying to do more of an end-to-end model where the only input is the video that they see of the world and the output is the motor actions. Like let's say a very high-level task: "go clean the room" or "go get me coffee." Do you feel like in the future that is the direction that robotics is headed where there's such a general model that can do anything, or do you feel like we still need very specialized models that do very specialized tasks?
+
+Lou: This is a great question and a very hot topic that both industry and academia has been debating a lot. I personally think I would lean more towards a generalist policy. The reason is that multiple skills that are trained for the generalist policy can might be able to transfer and help each other generalize. As sometimes the generalist policies—the advantage people believe is that it can learn something like a common sense or the intuitive physics, which is roughly like a model of how the world will react that can actually transfer across different tasks. So if once the model gains this common sense, it will be able to more easily transfer to a new task it has never seen before.
+
+Kevin: Do you think these models eventually can get down to like millimeter precision? For example, like very hard tasks like surgery maybe, or even if they're trying to assemble PCB boards? Do you think these models can eventually get to that level of precision or do you think they probably still need more of the typical robot programming where you program exact positions?
+
+Lou: Yeah, that's a great question. I think it might be hard for these generalist policies to directly perform millimeter accuracy tasks directly out of the box. But if we just collect a small number of demonstrations on these specific tasks and do post-training—that is, to refine the generalist policy on our specific task with the in-domain data—I think we will be able to achieve very high accuracy. The old traditional classical methods like scripting the robot arms can achieve very high fidelity, but they are more brittle to long-tail problems and they might do less well in terms of vision and more semantic reasoning where these generalist policies might be able to learn from failures or recovery from the other skills.
+
+Kevin: I know you mentioned like having more data for those specific cases. In general, do you feel like—what's stopping us from having robots in our house that's working? Do you feel like that's more of a data problem or is it more of a model and architecture or even robot hand development problem?
+
+Lou: I think the current obstacles are multifold. I would say the humanoid hardware is relatively more robust than, say, the hand hardware, so the sim-to-real gap is smaller and the motor control is more precise. But of course, in addition to the hardware problem, there is also the software problem, and for a lot of researchers, the core of the software problem is the data problem. So I think some of our hypothesis is that if we have enough high-quality data, maybe the training architecture and policy architecture doesn't matter as much. So we are essentially trying to control the quality of the policy output by controlling the data quality directly. If we can get very high-quality data for the robots, I think it will be a very important improvement for reliable deployment of these robots.
+
+Kevin: Right now a lot of people are either manually getting data or using data from simulations. I know Nvidia recently has been pushing Cosmos, which is their AI data—basically they're generating video data synthetically and they could augment and do data transfer for different scenes. Do you think that is the right approach to getting more data, or do you think there's different ways someone should be focusing on to get more data?
+
+Lou: Yeah, that's a great question. So I think we should actually leverage data from all different kinds of resources. Either it be the most expensive but arguably the highest quality data, which is the teleoperation data on the real robot, or it be the simulation data which we can generate in large scale but always has the sim-to-real gap. And also there are other kinds of data, which is for example internet video data, world model data that has rich semantic and visual features but might have less action data. I think different data has their own advantages and their own specialized targeting area. Combining these different sources of data together to enable both control and dynamics accuracy as well as semantic and visual understanding is a very interesting and promising topic.
+
+Kevin: I guess if you were to put an allocation—if I imagine like if there's a pie chart and you were to allocate the percent of each category that you mentioned just roughly, how would you categorize each of the parts of the pie for the different types of data?
+
+Lou: Yeah, since I myself am working on data generation in sim and doing kinematic retargeting, my answer will obviously be skewed towards using simulation data. It's very scalable and it can give us reasonably accurate dynamics and action data. So I would say I would allocate like half of the effort in generating simulation data, and the other half is split between video and real-world teleoperation data. I think video data is also more scalable than real-world teleoperation because for the teleoperation you always need a human operator to operate the robots; it can be time-consuming, it can cause fatigue for the human operator and wears the robot hardware. For the video you have the entire internet and you have these like you mentioned Cosmos—the generative video models and world models that can generate essentially endless video data for us to capture the visual dynamics, semantic features, and so on. So I think that one is more scalable. My personal take is to spend as much effort as possible on the scalable methods including simulation and video and also allocate a reasonable amount on the real data to actually close the sim-to-real gap.
+
+Kevin: There's been a lot of topic on traditional and newer ways of doing RL. Can you kind of dive into some of the details of that and maybe the differences between the two?
+
+Lou: Yeah. I want to give the kinematic retargeting as an example of doing things in both the classical optimization-based and model-based perspective and the more learning-based perspective. My very first background is actually in optimization and model-based control, and that actually laid a foundation for me to write Omni-Retarget, which is a constrained optimization-based kinematic retargeting pipeline. This sort of optimization-based pipeline will enable something that is not quite achievable by a learning-based pipeline. Because we're reasoning about hard constraints kinematics in an optimization fashion, we can enforce higher quality. So we can actually enforce hard constraints that learning-based policies won't be able to enforce. Say we don't want penetration of the object, we don't want the joint to exceed its hard limits, we don't want the velocity to exceed a certain threshold. For us, we can write it as hard constraints in the optimization program, versus in the more learning-based methods people normally put it as a soft penalty in the cost or reward and then try to optimize it. Sometimes it's not guaranteed that these hard constraints are actually enforced, so there might be a little bit of penetration or joint limit violation if we're doing this kind of soft penalty. But by doing the hard constraint optimization-based pipeline, we're able to enforce these hard constraints very systematically and rigorously so that we can have higher quality data to then be consumed by downstream learning paradigms.
+
+Kevin: Do you think it's possible to take both traditional optimization and RL-based methods together, or do you think it's more of an either-or type of situation?
+
+Lou: The combination of both is actually my goal. Upstream I'm using this optimization-based hard-constraint formulation to generate high-quality data, and downstream we're training our policies to track this high-quality data. So the combination of very rigorous high-quality data generation plus the massively parallelizable RL training I think is a very promising paradigm.
+
+Kevin: So you're saying the main hard constraint is more like the high-level loop closure in a way that's making sure the robot doesn't break these constraints? For the general audience, how would you kind of describe how that's able to keep everything under the main constraints that you want it?
+
+Lou: I would say if we want to enforce important hard constraints—specifically for the Omni-Retarget project at a kinematic level, which is just the robots obeying its morphological constraints—we can do it in a systematic optimization-based way. And later when we translate into physically plausible, dynamically plausible behavior, we want to leverage the large-scale parallelization in simulation in Isaac to do this translation. On a higher level, if we can split the problems into two phases where a smaller amount of computation requires higher quality, we can do it with the model-based strategy, but for the higher fidelity requirement and massively parallelizable setup, we can use the learning paradigm.
+
+Kevin: When you're trying to combine the two, if you were to try to describe the architecture of your program, how would you lay out the pieces? For example, a simple example: when you have an RL model of a robot walking, on the left I have my desired trajectory, the input goes to some RL inference model that's computing the desired torque, and then to the right of that is feeding it to the actuators. If you were to kind of describe in a block diagram level structure of a hybrid approach where you have your traditional optimization technique and your RL techniques, how would you describe that visual picture of how data is flowing?
+
+Lou: I would say the model-based approach—I'm personally using the model-based approach to generate higher quality data and then it will be used essentially as an initial guess for the RL policy. We can train our policy from scratch, but that is very time-consuming, requires a lot of reward tuning, and the resulting behavior might be less natural. But with the help of model-based methods, we will be able to enable more fluid motion from the initial guess provided by the model-based methods, and then the RL policy just bootstraps or initializes from that to learn a better controller.
+
+Kevin: You were talking about hard constraints using traditional optimization-based techniques and also combining that with RL techniques. Can you kind of walk a little bit into more detail about how you take the two things and combine them together?
+
+Lou: Sure. As I mentioned before, we do the kinematic retargeting by building a graph that preserves the relative location between the human and the robot as well as the objects. Here is the optimization program I'm solving: I'm trying to—there are components that are the objective as well as the constraints. The objectives are encouraging this interaction to be preserved, and the hard constraints include non-penetration (where we don't want the robot hand to penetrate the object), we want the joint to stay within the limits, as well as the velocity to stay within the speed limit, and we also want a hard constraint that the foot doesn't skate while the robot is walking. These constraints together with the interaction-preserving objective will give us some very high-quality data that preserves the human motion of picking up a box onto the robot as well as satisfying all the hard constraints including the robot hand not penetrating the object and the foot not sliding while walking.
+
+Kevin: Would you say you're using this constraint here as the input to your RL, or are you using this constraint to generate a full series of motion data?
+
+Lou: This is actually kind of a hierarchical framework. First we use this pipeline to generate data with hard constraints so that it can be used as initialization for the RL. During RL training, we actually initialize the agents to be in some random position or in some configurations at random time steps in this motion data set, and then from that, the RL will be able to start from these configurations and bootstrap from that to come up with a dynamically feasible solution. Let's compare it with a training-from-scratch paradigm where the RL policy initializes the agent to be in random locations. In that kind of scenario, there can be all kinds of penetrations, joint limits violation, velocity limit violation, as well as foot skating. With this optimization-based high-quality data generated, the RL will be initialized from a much better configuration than just initializing from scratch.
+
+Kevin: How do you know that if the initial position is in something that's physically possible, the rest of the RL execution will also be physically possible? What is kind of enforcing that?
+
+Lou: That's actually just time-stepping the simulator in Isaac that is enforcing the dynamical constraints.
+
+Kevin: So it's still like checking your optimization equation every time is that what you're saying?
+
+Lou: The data that comes from my optimization is simply used as the initialization for RL, and then RL just does whatever it's supposed to do in Isaac. Not only does the reference motion act as a good initialization for the RL policy, but it also adds guidance for the RL policy. It tells the RL policy where the robot should go at the next time step, and the RL tries to achieve that with the current dynamical constraints in Isaac Sim.
+
+Kevin: All right, so that's it for this episode. Thank you Lou for coming on to this podcast show. I'll leave some links in the video description for some of her works so you guys can go ahead and check that out.
+
+Lou: Thank you for inviting me, Kevin.
