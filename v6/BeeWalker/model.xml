@@ -166,32 +166,32 @@
              gainprm="50 0 0" biasprm="0 -50 0"
              dyntype="filter" dynprm="0.02"
              ctrllimited="true" ctrlrange="-1.57 1.57"
-             forcelimited="true" forcerange="-1.1 1.1"/>
+             forcelimited="true" forcerange="-0.7 0.7"/>
     <general name="servo_left_knee" joint="left_knee_joint" 
              gainprm="50 0 0" biasprm="0 -50 0"
              dyntype="filter" dynprm="0.02"
              ctrllimited="true" ctrlrange="-1.57 1.57"
-             forcelimited="true" forcerange="-1.1 1.1"/>
+             forcelimited="true" forcerange="-0.7 0.7"/>
     <general name="servo_left_ankle" joint="left_ankle_joint" 
              gainprm="50 0 0" biasprm="0 -50 0"
              dyntype="filter" dynprm="0.02"
              ctrllimited="true" ctrlrange="-1.57 1.57"
-             forcelimited="true" forcerange="-1.1 1.1"/>
+             forcelimited="true" forcerange="-0.7 0.7"/>
     <general name="servo_right_hip" joint="right_hip_joint" 
              gainprm="50 0 0" biasprm="0 -50 0"
              dyntype="filter" dynprm="0.02"
              ctrllimited="true" ctrlrange="-1.57 1.57"
-             forcelimited="true" forcerange="-1.1 1.1"/>
+             forcelimited="true" forcerange="-0.7 0.7"/>
     <general name="servo_right_knee" joint="right_knee_joint" 
              gainprm="50 0 0" biasprm="0 -50 0"
              dyntype="filter" dynprm="0.02"
              ctrllimited="true" ctrlrange="-1.57 1.57"
-             forcelimited="true" forcerange="-1.1 1.1"/>
+             forcelimited="true" forcerange="-0.7 0.7"/>
     <general name="servo_right_ankle" joint="right_ankle_joint" 
              gainprm="50 0 0" biasprm="0 -50 0"
              dyntype="filter" dynprm="0.02"
              ctrllimited="true" ctrlrange="-1.57 1.57"
-             forcelimited="true" forcerange="-1.1 1.1"/>
+             forcelimited="true" forcerange="-0.7 0.7"/>
   </actuator>
 
   <sensor>

@@ -305,7 +305,7 @@ def main():
     parser = argparse.ArgumentParser(description="BeeWalker LSTM Training")
     parser.add_argument("--resume", type=str, help="Path to checkpoint to resume from")
     parser.add_argument("--hidden-size", type=int, default=32, help="LSTM hidden size (default: 32)")
-    parser.add_argument("--n-envs", type=int, default=4, help="Number of parallel envs")
+    parser.add_argument("--n-envs", type=int, default=8, help="Number of parallel envs")
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
     parser.add_argument("--port", type=int, default=1306, help="Web UI port")
     args = parser.parse_args()
@@ -361,11 +361,11 @@ def main():
             learning_rate=args.lr,
             n_steps=2048,
             batch_size=128,
-            n_epochs=10,
+            n_epochs=5,
             gamma=0.99,
             gae_lambda=0.95,
             clip_range=0.2,
-            ent_coef=0.01,
+            ent_coef=0.025,
             vf_coef=0.5,
             max_grad_norm=0.5,
             device="cpu",
@@ -387,7 +387,7 @@ def main():
     print(f"  📊 Approx size: {total_params * 4 / 1024:.1f} KB (float32), {total_params / 1024:.1f} KB (int8)")
     
     # Callbacks
-    train_cb = TrainingCallback(eval_env, run_dir / "videos", video_freq=10_000, plot_freq=10_000)
+    train_cb = TrainingCallback(eval_env, run_dir / "videos", video_freq=100_000, plot_freq=10_000)
     checkpoint_cb = CheckpointCallback(
         save_freq=500_000 // args.n_envs,
         save_path=str(run_dir / "checkpoints"),

@@ -70,6 +70,9 @@ class BeeWalkerEnv(gym.Env):
             self._joint_qpos_indices.append(qpos_adr)
             self._joint_qvel_indices.append(qvel_adr)
         
+        # Body ID for domain randomization (random pushes)
+        self._pelvis_body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "pelvis")
+        
         # Sensor indices
         self._accel_sensor_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SENSOR, "imu_accel")
         self._quat_sensor_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SENSOR, "pelvis_orientation")
@@ -135,8 +138,15 @@ class BeeWalkerEnv(gym.Env):
         action = np.clip(action, -1.57, 1.57)
         self.data.ctrl[:6] = action
         
-        # Step simulation (multiple physics steps per env step for stability)
-        for _ in range(4):  # 4 physics steps = 8ms per env step
+        # Domain randomization: random push every ~1 second (50 steps at 50Hz)
+        if self._step_count % 50 == 0 and self.np_random is not None:
+            push = self.np_random.uniform(-0.5, 0.5, size=3)
+            self.data.xfrc_applied[self._pelvis_body_id, :3] = push
+        elif self._step_count % 50 == 1:
+            self.data.xfrc_applied[self._pelvis_body_id, :3] = 0  # Clear after 1 step
+        
+        # Step simulation: 10 substeps at 0.002s = 20ms per env step = 50Hz policy
+        for _ in range(10):
             mujoco.mj_step(self.model, self.data)
         
         self._step_count += 1
@@ -156,6 +166,7 @@ class BeeWalkerEnv(gym.Env):
     def _compute_reward(self, action):
         """
         Reward function encouraging forward walking.
+        Includes reference motion bonus for faster convergence.
         """
         pelvis_pos = self.data.body("pelvis").xpos
         pelvis_vel = self.data.body("pelvis").cvel  # [angular, linear]
@@ -165,7 +176,6 @@ class BeeWalkerEnv(gym.Env):
         velocity_reward = forward_vel * 2.0
         
         # Upright reward - pelvis z-axis should point up
-        # Extract from rotation matrix (column 2 is z-axis in world frame)
         pelvis_mat = self.data.body("pelvis").xmat.reshape(3, 3)
         upright = pelvis_mat[2, 2]  # Z component of body's Z axis
         upright_reward = upright * 0.5
@@ -187,11 +197,32 @@ class BeeWalkerEnv(gym.Env):
         foot_diff = abs(left_foot_z - right_foot_z)
         stepping_bonus = foot_diff * 2.0
         
+        # === REFERENCE MOTION REWARD ===
+        # Sine-wave walking reference at 2Hz — soft bonus for tracking
+        # This bootstraps the search, skipping aimless early phases
+        phase = (self._step_count / 50.0) * 2.0 * np.pi * 2.0  # 2Hz gait at 50Hz control
+        ref_joints = np.array([
+            0.4 * np.sin(phase),             # left hip
+           -0.3 * np.cos(phase),             # left knee
+            0.1 * np.sin(phase),             # left ankle
+           -0.4 * np.sin(phase),             # right hip (anti-phase)
+           -0.3 * np.cos(phase + np.pi),     # right knee (anti-phase)
+           -0.1 * np.sin(phase),             # right ankle (anti-phase)
+        ])
+        joint_pos = np.array([self.data.qpos[i] for i in self._joint_qpos_indices])
+        ref_error = np.sum((joint_pos - ref_joints) ** 2)
+        reference_reward = 1.0 * np.exp(-2.0 * ref_error)  # 0 to 1.0 bonus
+        
+        # Survival bonus — small reward per timestep alive
+        survival_bonus = 0.1
+        
         total_reward = (
             velocity_reward +
             upright_reward +
             height_reward +
-            stepping_bonus -
+            stepping_bonus +
+            reference_reward +
+            survival_bonus -
             ctrl_cost -
             drift_penalty
         )

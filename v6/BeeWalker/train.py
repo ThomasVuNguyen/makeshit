@@ -206,6 +206,24 @@ class ConfigurableRewardEnv(BeeWalkerEnv):
             joint_vel = np.sum(np.abs(self.data.qvel[6:12]))
             exploration_bonus = cfg.exploration_bonus * joint_vel
         
+        # === REFERENCE MOTION REWARD ===
+        # Sine-wave walking reference at 2Hz — soft bonus for tracking
+        phase = (self._step_count / 50.0) * 2.0 * np.pi * 2.0  # 2Hz gait at 50Hz control
+        ref_joints = np.array([
+            0.4 * np.sin(phase),             # left hip
+           -0.3 * np.cos(phase),             # left knee
+            0.1 * np.sin(phase),             # left ankle
+           -0.4 * np.sin(phase),             # right hip (anti-phase)
+           -0.3 * np.cos(phase + np.pi),     # right knee (anti-phase)
+           -0.1 * np.sin(phase),             # right ankle (anti-phase)
+        ])
+        joint_pos = np.array([self.data.qpos[i] for i in self._joint_qpos_indices])
+        ref_error = np.sum((joint_pos - ref_joints) ** 2)
+        reference_reward = 1.0 * np.exp(-2.0 * ref_error)  # 0 to 1.0 bonus
+        
+        # Survival bonus — small reward per timestep alive
+        survival_bonus = 0.1
+        
         total_reward = (
             velocity_reward +
             upright_reward +
@@ -215,7 +233,9 @@ class ConfigurableRewardEnv(BeeWalkerEnv):
             foot_clearance_reward +
             symmetry_reward +
             efficiency_reward +
-            exploration_bonus -
+            exploration_bonus +
+            reference_reward +
+            survival_bonus -
             ctrl_cost -
             drift_penalty
         )
