@@ -248,11 +248,11 @@ class BeeWalkerEnv(gym.Env):
             return None
         
         if self._renderer is None:
-            self._renderer = mujoco.Renderer(self.model, height=480, width=640)
+            self._renderer = mujoco.Renderer(self.model, height=720, width=1280)
             self._camera = mujoco.MjvCamera()
             self._camera.distance = 0.8
-            self._camera.elevation = -20
-            self._camera.azimuth = 135
+            self._camera.elevation = -18
+            self._camera.azimuth = 130
         
         self._camera.lookat = self.data.body("pelvis").xpos.copy()
         self._renderer.update_scene(self.data, camera=self._camera)

@@ -163,27 +163,83 @@ class TrainingCallback(BaseCallback):
         except Exception as e:
             print(f"Plot error: {e}")
     
+    @staticmethod
+    def _add_hud(frame, step_text, reward_val, frame_idx, total_frames):
+        """JARVIS-style HUD overlay."""
+        h, w = frame.shape[:2]
+        ov = frame.copy()
+        # Top gradient
+        for i in range(48):
+            cv2.rectangle(ov, (0, i), (w, i+1), (12, 14, 20), -1)
+        frame = cv2.addWeighted(ov, 0.5 * (1 - frame_idx * 0 ), frame, 0.5, 0)
+        # Accent line
+        cv2.line(frame, (20, 40), (w-20, 40), (45, 55, 70), 1)
+        cx = w // 2
+        cv2.line(frame, (cx-80, 40), (cx+80, 40), (70, 140, 200), 2)
+        # Title
+        cv2.putText(frame, "BEEWALKER", (24, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (120, 150, 180), 1, cv2.LINE_AA)
+        # Step counter
+        ts = cv2.getTextSize(step_text, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)[0]
+        cv2.putText(frame, step_text, (cx - ts[0]//2, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (160, 190, 220), 1, cv2.LINE_AA)
+        # Reward
+        rt = f"R {reward_val:.1f}"
+        rc = (80, 210, 140) if reward_val > 0 else (210, 140, 80)
+        ts2 = cv2.getTextSize(rt, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+        cv2.putText(frame, rt, (w - ts2[0] - 24, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.5, rc, 1, cv2.LINE_AA)
+        # Bottom progress bar
+        ov2 = frame.copy()
+        for i in range(30):
+            cv2.rectangle(ov2, (0, h-30+i), (w, h-30+i+1), (12, 14, 20), -1)
+        frame = cv2.addWeighted(ov2, 0.35, frame, 0.65, 0)
+        by = h - 12
+        p = frame_idx / max(total_frames, 1)
+        cv2.line(frame, (24, by), (w-24, by), (35, 42, 55), 2)
+        be = 24 + int((w - 48) * p)
+        cv2.line(frame, (24, by), (be, by), (60, 130, 210), 2)
+        cv2.circle(frame, (be, by), 3, (100, 190, 255), -1)
+        # Time
+        cv2.putText(frame, f"{frame_idx/30:.1f}s", (24, h-18), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (80, 95, 120), 1, cv2.LINE_AA)
+        # Corner brackets
+        bc = (40, 55, 72)
+        for (x1,y1),(x2,y2),(x3,y3) in [((8,8),(28,8),(8,28)),((w-8,8),(w-28,8),(w-8,28)),((8,h-8),(28,h-8),(8,h-28)),((w-8,h-8),(w-28,h-8),(w-8,h-28))]:
+            cv2.line(frame,(x1,y1),(x2,y2),bc,1); cv2.line(frame,(x1,y1),(x3,y3),bc,1)
+        return frame
+
     def _record_video(self):
-        """Record evaluation video using deterministic policy."""
+        """Record evaluation video using deterministic policy with JARVIS HUD."""
         obs = self.eval_env.reset()[0]
         frames = []
         lstm_states = None
         episode_starts = np.ones((1,), dtype=bool)
+        total_reward = 0.0
+        n_frames = 300  # 10 seconds at 30fps
         
-        for _ in range(300):  # 10 seconds at 30fps
+        # Format step count for HUD
+        steps = self.num_timesteps
+        if steps >= 1_000_000:
+            step_text = f"{steps/1_000_000:.2f}M STEPS"
+        elif steps >= 1_000:
+            step_text = f"{steps/1_000:.0f}K STEPS"
+        else:
+            step_text = f"{steps:,} STEPS"
+        
+        for i in range(n_frames):
             action, lstm_states = self.model.predict(
                 obs, state=lstm_states, 
                 episode_start=episode_starts,
                 deterministic=True
             )
-            obs, _, term, trunc, _ = self.eval_env.step(action)
+            obs, reward, term, trunc, _ = self.eval_env.step(action)
+            total_reward += reward
             frame = self.eval_env.render()
             if frame is not None:
+                frame = self._add_hud(frame, step_text, total_reward, i, n_frames)
                 frames.append(frame)
             
             episode_starts = np.array([term or trunc])
             if term or trunc:
                 obs = self.eval_env.reset()[0]
+                total_reward = 0.0
         
         if frames:
             video_dir = self.save_dir
@@ -191,7 +247,7 @@ class TrainingCallback(BaseCallback):
             video_path = video_dir / f"step_{self.num_timesteps:09d}.mp4"
             imageio.mimwrite(
                 str(video_path), frames, fps=30, codec='libx264',
-                output_params=['-pix_fmt', 'yuv420p', '-preset', 'fast', '-crf', '23']
+                output_params=['-pix_fmt', 'yuv420p', '-preset', 'fast', '-crf', '18']
             )
             print(f"  📹 Saved: {video_path.name}")
     
