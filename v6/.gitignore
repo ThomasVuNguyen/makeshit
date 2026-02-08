@@ -1,7 +1,3 @@
 BeeWalker/venv/
-BeeWalker/results/2026*/
-BeeWalker/results/speed*/
-BeeWalker/results/sweep*/
+BeeWalker/results/
 BeeWalker/__pycache__/
-BeeWalker/results/full*mp4
-BeeWalker/results/lstm*/
