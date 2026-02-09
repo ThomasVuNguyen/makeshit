@@ -253,8 +253,15 @@ class BeeWalkerEnv(gym.Env):
             self._camera.distance = 0.8
             self._camera.elevation = -18
             self._camera.azimuth = 130
+            self._cam_target = np.array([0.0, 0.0, 0.25])
         
-        self._camera.lookat = self.data.body("pelvis").xpos.copy()
+        # Smooth camera tracking — slow lerp, locked vertical
+        pelvis = self.data.body("pelvis").xpos
+        smooth = 0.05  # Low = cinematic glide, high = jerky
+        self._cam_target[0] += smooth * (pelvis[0] - self._cam_target[0])
+        self._cam_target[1] += smooth * (pelvis[1] - self._cam_target[1])
+        self._cam_target[2] = 0.22  # Fixed height — no vertical bobbing
+        self._camera.lookat[:] = self._cam_target
         self._renderer.update_scene(self.data, camera=self._camera)
         return self._renderer.render()
     
