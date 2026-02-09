@@ -3,3 +3,5 @@ Analyze the latest training run so far and help me analyze the progress on the f
 - Is the training stable? or are there any signs of instability?
 - Is the model still improving meaningfully? or has it plateaued?
 - Does this model still seem to be able to run on rp2040?
+
+Review frames from the recorded latest videos to review the training progress, exploration and specialization etc.
