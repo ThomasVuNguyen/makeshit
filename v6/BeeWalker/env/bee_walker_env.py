@@ -165,55 +165,58 @@ class BeeWalkerEnv(gym.Env):
     
     def _compute_reward(self, action):
         """
-        Reward function encouraging forward walking.
-        Includes reference motion bonus for faster convergence.
+        Natural gait reward — tuned for human-like walking.
+        Emphasizes symmetry, smoothness, and efficiency over raw speed.
         """
         pelvis_pos = self.data.body("pelvis").xpos
         pelvis_vel = self.data.body("pelvis").cvel  # [angular, linear]
         
-        # Forward velocity reward (main objective)
+        # Forward velocity reward (reduced weight to avoid exploitation)
         forward_vel = pelvis_vel[3]  # Linear velocity X
-        velocity_reward = forward_vel * 2.0
+        velocity_reward = forward_vel * 1.0  # Lowered from 2.0
         
         # Upright reward - pelvis z-axis should point up
         pelvis_mat = self.data.body("pelvis").xmat.reshape(3, 3)
         upright = pelvis_mat[2, 2]  # Z component of body's Z axis
-        upright_reward = upright * 0.5
+        upright_reward = upright * 1.0  # Increased from 0.5
         
         # Height bonus - encourage staying at good height
         height = pelvis_pos[2]
         height_reward = 0.5 if height > 0.15 else 0.0
         
-        # Energy penalty - discourage excessive joint torques
-        ctrl_cost = 0.001 * np.sum(action**2)
+        # Energy penalty - discourage excessive joint torques (increased)
+        ctrl_cost = 0.01 * np.sum(action**2)  # 10x increase
+        
+        # Joint velocity penalty - penalize jerky motion
+        joint_vel = self.data.qvel[6:12]  # Joint velocities
+        jerk_penalty = 0.005 * np.sum(joint_vel**2)
         
         # Lateral drift penalty
         lateral_vel = abs(pelvis_vel[4])  # Linear velocity Y
-        drift_penalty = 0.1 * lateral_vel
+        drift_penalty = 0.2 * lateral_vel  # Increased from 0.1
         
-        # Foot alternation bonus (encourage stepping motion)
+        # Foot alternation bonus — STRONGER emphasis (encourage stepping)
         left_foot_z = self.data.body("left_foot").xpos[2]
         right_foot_z = self.data.body("right_foot").xpos[2]
         foot_diff = abs(left_foot_z - right_foot_z)
-        stepping_bonus = foot_diff * 2.0
+        stepping_bonus = foot_diff * 3.0  # Increased from 2.0
         
         # === REFERENCE MOTION REWARD ===
-        # Sine-wave walking reference at 2Hz — soft bonus for tracking
-        # This bootstraps the search, skipping aimless early phases
-        phase = (self._step_count / 50.0) * 2.0 * np.pi * 2.0  # 2Hz gait at 50Hz control
+        # 1.5Hz gait (~90 steps/min, more human-like than 2Hz)
+        phase = (self._step_count / 50.0) * 2.0 * np.pi * 1.5
         ref_joints = np.array([
-            0.4 * np.sin(phase),             # left hip
-           -0.3 * np.cos(phase),             # left knee
-            0.1 * np.sin(phase),             # left ankle
-           -0.4 * np.sin(phase),             # right hip (anti-phase)
-           -0.3 * np.cos(phase + np.pi),     # right knee (anti-phase)
-           -0.1 * np.sin(phase),             # right ankle (anti-phase)
+            0.35 * np.sin(phase),             # left hip (slightly reduced)
+           -0.25 * np.cos(phase),             # left knee
+            0.1 * np.sin(phase),              # left ankle
+           -0.35 * np.sin(phase),             # right hip (anti-phase)
+           -0.25 * np.cos(phase + np.pi),     # right knee (anti-phase)
+           -0.1 * np.sin(phase),              # right ankle (anti-phase)
         ])
         joint_pos = np.array([self.data.qpos[i] for i in self._joint_qpos_indices])
         ref_error = np.sum((joint_pos - ref_joints) ** 2)
-        reference_reward = 1.0 * np.exp(-2.0 * ref_error)  # 0 to 1.0 bonus
+        reference_reward = 1.5 * np.exp(-2.0 * ref_error)  # Increased from 1.0
         
-        # Survival bonus — small reward per timestep alive
+        # Survival bonus
         survival_bonus = 0.1
         
         total_reward = (
@@ -224,6 +227,7 @@ class BeeWalkerEnv(gym.Env):
             reference_reward +
             survival_bonus -
             ctrl_cost -
+            jerk_penalty -
             drift_penalty
         )
         
