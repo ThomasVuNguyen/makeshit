@@ -256,6 +256,12 @@ def upload_to_hf(runs, dry_run=False):
         print("⚠️  Not logged in. Running `huggingface-cli login`...")
         login()
     
+    # Create repo if it doesn't exist
+    try:
+        api.create_repo(repo_id=REPO_ID, repo_type="model", exist_ok=True, private=False)
+    except Exception as e:
+        print(f"⚠️  Could not create/verify repo: {e}")
+    
     print(f"\n🚀 Uploading {len(runs)} run(s) to {REPO_ID}\n")
     
     # Collect all run info for top-level README
@@ -282,7 +288,7 @@ def upload_to_hf(runs, dry_run=False):
         # Upload the run directory
         print(f"   ⬆️  Uploading to {REPO_ID}/{info['name']}/...")
         try:
-            api.upload_large_folder(
+            api.upload_folder(
                 repo_id=REPO_ID,
                 folder_path=str(run_dir),
                 path_in_repo=info["name"],
@@ -291,18 +297,6 @@ def upload_to_hf(runs, dry_run=False):
             print(f"   ✅ Done!")
         except Exception as e:
             print(f"   ❌ Error: {e}")
-            # Fallback to regular upload
-            print(f"   🔄 Retrying with upload_folder...")
-            try:
-                api.upload_folder(
-                    repo_id=REPO_ID,
-                    folder_path=str(run_dir),
-                    path_in_repo=info["name"],
-                    repo_type="model",
-                )
-                print(f"   ✅ Done (fallback)!")
-            except Exception as e2:
-                print(f"   ❌ Failed: {e2}")
     
     # Generate and upload top-level README
     if not dry_run and all_infos:
