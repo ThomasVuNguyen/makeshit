@@ -184,8 +184,8 @@ class BeeWalkerEnv(gym.Env):
         height = pelvis_pos[2]
         height_reward = 0.5 if height > 0.15 else 0.0
         
-        # Energy penalty - discourage excessive joint torques (increased)
-        ctrl_cost = 0.01 * np.sum(action**2)  # 10x increase
+        # Energy penalty - discourage excessive joint torques (balanced)
+        ctrl_cost = 0.005 * np.sum(action**2)  # Reduced from 0.01
         
         # Joint velocity penalty - penalize jerky motion
         joint_vel = self.data.qvel[6:12]  # Joint velocities
