@@ -1,10 +1,22 @@
+# Core simulation
 mujoco
-flask
-opencv-python
-numpy
-stable-baselines3>=2.0.0
 gymnasium>=0.29.0
+numpy
+
+# RL training
+stable-baselines3>=2.0.0
+sb3-contrib>=2.0.0
 tensorboard
 tqdm
-opencv-python
 
+# Video recording & HUD
+imageio
+imageio-ffmpeg
+opencv-python-headless
+matplotlib
+
+# Web dashboard
+flask
+
+# HuggingFace upload
+huggingface-hub
