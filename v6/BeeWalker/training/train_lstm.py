@@ -415,7 +415,11 @@ def main():
     if args.resume:
         print(f"\n📂 Resuming from: {args.resume}")
         model = RecurrentPPO.load(args.resume, env=env, device="cpu")
-        print(f"  Loaded successfully")
+        # FIX: SB3 .load() ignores the --lr arg and uses the saved model's LR.
+        # We must explicitly override it after loading.
+        model.learning_rate = args.lr
+        model.lr_schedule = lambda _: args.lr  # Constant LR schedule
+        print(f"  Loaded successfully (LR overridden to {args.lr})")
     else:
         print(f"\n🆕 Starting fresh LSTM training")
         model = RecurrentPPO(

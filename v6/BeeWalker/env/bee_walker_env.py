@@ -175,6 +175,11 @@ class BeeWalkerEnv(gym.Env):
         forward_vel = pelvis_vel[3]  # Linear velocity X
         velocity_reward = forward_vel * 1.0  # Lowered from 2.0
         
+        # Standing-still penalty — make standing unprofitable
+        # Without this, the model exploits upright+height+survival bonuses by not moving
+        if abs(forward_vel) < 0.05:
+            velocity_reward = -2.0
+        
         # Upright reward - pelvis z-axis should point up
         pelvis_mat = self.data.body("pelvis").xmat.reshape(3, 3)
         upright = pelvis_mat[2, 2]  # Z component of body's Z axis

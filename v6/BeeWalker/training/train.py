@@ -154,6 +154,11 @@ class ConfigurableRewardEnv(BeeWalkerEnv):
         # Base rewards
         forward_vel = pelvis_vel[3]
         velocity_reward = forward_vel * cfg.velocity_weight
+        
+        # Standing-still penalty — make standing unprofitable
+        if abs(forward_vel) < 0.05:
+            velocity_reward = -2.0
+        
         upright_reward = upright * cfg.upright_weight
         height_reward = (cfg.height_weight if pelvis_pos[2] > 0.15 else 0.0)
         
