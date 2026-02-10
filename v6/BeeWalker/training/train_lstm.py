@@ -48,7 +48,7 @@ config = REWARD_CONFIGS["speed"]
 
 # Flask app for dashboard
 app = Flask(__name__)
-stats = {"steps": 0, "reward": 0, "best": 0, "ep_len": 0, "fps": 0}
+stats = {"steps": 0, "reward": 0, "best": 0, "ep_len": 0, "fps": 0, "curriculum": 0.0}
 run_dir = None  # Set in main()
 
 
@@ -62,6 +62,33 @@ def make_env(rank, seed=0):
         return env
     set_random_seed(seed)
     return _init
+
+
+class CurriculumCallback(BaseCallback):
+    """Advances curriculum difficulty based on training progress.
+    
+    Ramps from 0.0 (easy) to 1.0 (hard) over curriculum_steps timesteps.
+    Uses env_method() to set curriculum on all SubprocVecEnv workers.
+    """
+    
+    def __init__(self, curriculum_steps=30_000_000, update_freq=20_000):
+        super().__init__()
+        self.curriculum_steps = curriculum_steps
+        self.update_freq = update_freq
+        self._last_progress = -1.0
+    
+    def _on_step(self):
+        if self.num_timesteps % self.update_freq == 0:
+            progress = min(self.num_timesteps / self.curriculum_steps, 1.0)
+            if abs(progress - self._last_progress) >= 0.01:  # Only update on meaningful change
+                self._last_progress = progress
+                stats["curriculum"] = progress
+                # Set curriculum on all parallel training envs
+                self.training_env.env_method("set_curriculum", progress)
+                phase = int(progress * 4) + 1
+                phase = min(phase, 4)
+                print(f"  📈 Curriculum: {progress:.0%} (Phase {phase}/4)")
+        return True
 
 
 class TrainingCallback(BaseCallback):
@@ -371,6 +398,8 @@ def main():
     parser.add_argument("--n-envs", type=int, default=10, help="Number of parallel envs")
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
     parser.add_argument("--port", type=int, default=1306, help="Web UI port")
+    parser.add_argument("--curriculum-steps", type=int, default=30_000_000,
+                        help="Steps over which to ramp curriculum from easy to hard (default: 30M)")
     args = parser.parse_args()
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -387,6 +416,7 @@ def main():
     print(f"  Learning rate:    {args.lr}")
     print(f"  Results:          {run_dir}")
     print(f"  Dashboard:        http://127.0.0.1:{args.port}")
+    print(f"  Curriculum ramp:  {args.curriculum_steps/1e6:.0f}M steps")
     print("=" * 60)
     
     # Save run config
@@ -455,6 +485,7 @@ def main():
     
     # Callbacks
     train_cb = TrainingCallback(eval_env, run_dir / "videos", video_freq=100_000, plot_freq=10_000)
+    curriculum_cb = CurriculumCallback(curriculum_steps=args.curriculum_steps)
     checkpoint_cb = CheckpointCallback(
         save_freq=500_000 // args.n_envs,
         save_path=str(run_dir / "checkpoints"),
@@ -465,7 +496,7 @@ def main():
     try:
         model.learn(
             total_timesteps=1_000_000_000,
-            callback=[train_cb, checkpoint_cb],
+            callback=[train_cb, curriculum_cb, checkpoint_cb],
             progress_bar=True,
             reset_num_timesteps=(args.resume is None),
         )

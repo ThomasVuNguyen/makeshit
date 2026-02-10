@@ -45,6 +45,14 @@ class BeeWalkerEnv(gym.Env):
         self.max_episode_steps = max_episode_steps
         self._step_count = 0
         
+        # === CURRICULUM LEARNING ===
+        # Progress from 0.0 (easy) to 1.0 (hard) over training
+        # Phase 1 (0.0-0.25): Gentle — learn to stand and walk
+        # Phase 2 (0.25-0.5): Medium — light pushes, normal episodes
+        # Phase 3 (0.5-0.75): Hard — stronger pushes, tighter termination
+        # Phase 4 (0.75-1.0): Expert — full difficulty, domain randomization
+        self._curriculum_progress = 0.0  # Set externally by training callback
+        
         # Action space: joint position commands [-1.57, 1.57] rad
         self.action_space = spaces.Box(
             low=-1.57, high=1.57, shape=(6,), dtype=np.float32
@@ -133,16 +141,26 @@ class BeeWalkerEnv(gym.Env):
         
         return self._get_obs(), self._get_info()
     
+    def set_curriculum(self, progress):
+        """Set curriculum progress from 0.0 (easy) to 1.0 (hard)."""
+        self._curriculum_progress = np.clip(progress, 0.0, 1.0)
+    
     def step(self, action):
         # Apply action (joint position commands)
         action = np.clip(action, -1.57, 1.57)
         self.data.ctrl[:6] = action
         
-        # Domain randomization: random push every ~1 second (50 steps at 50Hz)
-        if self._step_count % 50 == 0 and self.np_random is not None:
-            push = self.np_random.uniform(-0.5, 0.5, size=3)
+        # === CURRICULUM-SCALED PUSHES ===
+        # Push strength: 0.1N (easy) → 1.0N (hard)
+        push_strength = 0.1 + 0.9 * self._curriculum_progress
+        # Push frequency: every 100 steps/2s (easy) → every 25 steps/0.5s (hard)
+        push_interval = int(100 - 75 * self._curriculum_progress)
+        push_interval = max(push_interval, 25)
+        
+        if self._step_count % push_interval == 0 and self.np_random is not None:
+            push = self.np_random.uniform(-push_strength, push_strength, size=3)
             self.data.xfrc_applied[self._pelvis_body_id, :3] = push
-        elif self._step_count % 50 == 1:
+        elif self._step_count % push_interval == 1:
             self.data.xfrc_applied[self._pelvis_body_id, :3] = 0  # Clear after 1 step
         
         # Step simulation: 10 substeps at 0.002s = 20ms per env step = 50Hz policy
@@ -239,15 +257,20 @@ class BeeWalkerEnv(gym.Env):
         return total_reward
     
     def _check_termination(self):
-        """Check if episode should terminate."""
+        """Check if episode should terminate (curriculum-aware)."""
         pelvis_pos = self.data.body("pelvis").xpos
         pelvis_mat = self.data.body("pelvis").xmat.reshape(3, 3)
         upright = pelvis_mat[2, 2]
         
-        # Terminate if fallen (too low or too tilted)
+        # Terminate if fallen (too low)
         if pelvis_pos[2] < 0.08:
             return True
-        if upright < 0.3:  # More than ~70 degrees tilt
+        
+        # Tilt threshold: lenient early (0.1) → strict later (0.3)
+        # Early: only terminate at extreme tilt, giving model time to recover
+        # Late: terminate at moderate tilt, forcing clean walking
+        tilt_threshold = 0.1 + 0.2 * self._curriculum_progress
+        if upright < tilt_threshold:
             return True
         
         return False
