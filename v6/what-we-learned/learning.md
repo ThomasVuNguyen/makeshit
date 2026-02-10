@@ -1,6 +1,6 @@
 # BeeWalker Training — What We've Learned
 
-*Last updated: Feb 9, 2026*
+*Last updated: Feb 10, 2026*
 
 ---
 
@@ -20,6 +20,8 @@ Train a bipedal walking policy in MuJoCo that runs on an **RP2040** (133 MHz, 26
 | 4 | LSTM v1 | Feb 7 | RecurrentPPO, 4 envs, LR 3e-4 | **24.9M** | **669.8** | Natural 6-phase gait evolution |
 | 5 | LSTM v2 | Feb 8–9 | RecurrentPPO, 10 envs, LR 3e-4 | **17.5M** | **874.6** | 🏆 Best model ever |
 | 6 | LSTM Resume | Feb 9 | Resume from #5, intended LR 1e-4 | 17.5M→24.1M | 874.6→~300 | ❌ Failed — degraded |
+| 7 | LSTM + Penalty | Feb 9–10 | Standing-still penalty (-2.0), LR fix | **20.3M** | **436.4** | ✅ Real walking, no standing exploit |
+| 8 | LSTM + Curriculum | Feb 10 | Progressive difficulty (pushes, tilt) | In progress | TBD | 🔄 Running now |
 
 ---
 
@@ -126,8 +128,8 @@ Best model: ~265KB (float32), ~65KB quantized. Architecture: 22 obs → [64] →
 ### Training too long without early stopping
 Both the 405M MLP run and the 24.1M resumed run show: **more steps ≠ better performance past a point**. Without auto-reverting to the best checkpoint, continued training destroys good policies.
 
-### The standing-still exploit
-The model can earn ~300-400 reward just by standing (upright + height + survival bonuses) without walking. This safe local optimum is too attractive during instability. The reward function needs a **minimum velocity penalty** to make standing unprofitable.
+### The standing-still exploit (FIXED ✅)
+The model could earn ~300-400 reward by standing (upright + height + survival bonuses). **Fixed in Run #7** with a `-2.0` penalty when `|forward_vel| < 0.05`. Run #7's best (436.4) is lower than Run #5 (874.6) because standing-still reward is no longer inflating the scores — but the model genuinely walks now.
 
 ### High reward variance
 Even in the best runs, reward oscillates ±200. The model never truly converges — it cycles between "good walk" and "fell over early." Competing reward objectives (speed vs stability) cause this.
@@ -138,23 +140,25 @@ Even in the best runs, reward oscillates ±200. The model never truly converges 
 
 1. **LR scheduling for fine-tuning** — We've never successfully fine-tuned a checkpoint. Would cosine annealing (3e-4 → 1e-5) help?
 
-2. **Curriculum learning** — Start with short episodes, weak pushes, gradually increase difficulty. Could this produce more stable early gaits?
+2. ~~**Curriculum learning**~~ → **Now being tested in Run #8!** Progressive difficulty: push strength 0.1→1.0N, push frequency every 2s→0.5s, tilt threshold 0.1→0.3 over 30M steps.
 
-3. **The "natural" reward config with LSTM** — The LSTM runs only used the hardcoded `bee_walker_env.py` reward. The "natural" config (knee_bend=3.0, foot_clearance=5.0) has never been tested with LSTM.
+3. **The "natural" reward config with LSTM** — Never tested with LSTM. Could knee_bend + foot_clearance bonuses help?
 
-4. **Larger model capacity** — Current: LSTM(32), pi=[64]. RP2040 could handle LSTM(64), pi=[128,64]. Would bigger models learn faster or more stable gaits?
+4. **Larger model capacity** — Current: LSTM(32), pi=[64]. RP2040 could handle LSTM(64), pi=[128,64].
 
-5. **100M+ LSTM steps from scratch** — We've never let an LSTM run past 25M. Does it need MLP-scale step counts, or does it converge earlier?
+5. **100M+ LSTM steps from scratch** — We've never let an LSTM run past 25M. Run #8 will test this.
 
-6. **Standing penalty** — Would `-2.0 if |vel_x| < 0.05` prevent the standing-still exploit and force real walking?
+6. ~~**Standing penalty**~~ → **Answered in Run #7!** Yes, `-2.0 if |vel_x| < 0.05` forces real walking.
 
-7. **Entropy coefficient decay** — Starting at `ent_coef=0.025` encourages exploration early, but does it add too much noise late in training? Decaying to 0.005 might help convergence.
+7. **Entropy coefficient decay** — Decaying ent_coef from 0.025→0.005 might help convergence.
 
-8. **Sim-to-real gap** — We haven't deployed to hardware yet. The MuJoCo model's accuracy vs real MG996R servos is unvalidated.
+8. **Sim-to-real gap** — Unvalidated. MuJoCo vs real MG996R accuracy unknown.
 
 ---
 
 ## Current Best Model
 
-**File:** `results/lstm_20260209_004543/checkpoints/lstm_17500000_steps.zip`
-**Reward:** 874.6 | **Steps:** 17.5M | **Size:** ~265KB | **Architecture:** MlpLstmPolicy, hidden=32, pi=[64], vf=[64]
+**Best reward:** `results/lstm_20260209_004543/checkpoints/lstm_17500000_steps.zip` — R=874.6 (inflated by standing exploit)
+**Best walking:** `results/lstm_20260209_191705/best_model.zip` — R=436.4 (genuine walking, Run #7)
+**Architecture:** MlpLstmPolicy, hidden=32, pi=[64], vf=[64] | **Size:** ~265KB (float32), ~65KB (int8)
+**HuggingFace:** [ThomasVuNguyen/beewalker](https://huggingface.co/ThomasVuNguyen/beewalker)
