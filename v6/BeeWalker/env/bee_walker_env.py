@@ -53,6 +53,14 @@ class BeeWalkerEnv(gym.Env):
         # Phase 4 (0.75-1.0): Expert — full difficulty, domain randomization
         self._curriculum_progress = 0.0  # Set externally by training callback
         
+        # === TERRAIN RANDOMIZATION ===
+        # Separate progress for terrain difficulty (can ramp independently)
+        # Friction: default sliding friction → random per episode
+        # Gravity tilt: slight x/y gravity components to simulate slopes
+        self._terrain_progress = 0.0  # Set externally by training callback
+        self._default_friction = self.model.geom_friction.copy()  # Store defaults
+        self._default_gravity = self.model.opt.gravity.copy()      # [0, 0, -9.81]
+        
         # Action space: joint position commands [-1.57, 1.57] rad
         self.action_space = spaces.Box(
             low=-1.57, high=1.57, shape=(6,), dtype=np.float32
@@ -126,11 +134,43 @@ class BeeWalkerEnv(gym.Env):
             "z_position": pelvis_pos[2],
         }
     
+    def set_curriculum(self, progress):
+        """Set curriculum progress from 0.0 (easy) to 1.0 (hard)."""
+        self._curriculum_progress = np.clip(progress, 0.0, 1.0)
+    
+    def set_terrain_curriculum(self, progress):
+        """Set terrain randomization intensity from 0.0 (none) to 1.0 (full)."""
+        self._terrain_progress = np.clip(progress, 0.0, 1.0)
+    
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         
         mujoco.mj_resetData(self.model, self.data)
         self._step_count = 0
+        
+        # === TERRAIN RANDOMIZATION (per-episode) ===
+        if self.np_random is not None and self._terrain_progress > 0.01:
+            tp = self._terrain_progress
+            
+            # Friction randomization: narrow range → wide range
+            # Easy (tp=0): friction = default (no change)
+            # Hard (tp=1): friction = 0.3x to 2.0x default
+            friction_lo = 1.0 - 0.7 * tp   # 1.0 → 0.3
+            friction_hi = 1.0 + 1.0 * tp   # 1.0 → 2.0
+            friction_scale = self.np_random.uniform(friction_lo, friction_hi)
+            self.model.geom_friction[:] = self._default_friction * friction_scale
+            
+            # Gravity tilt to simulate slopes
+            # Easy (tp=0): no tilt
+            # Hard (tp=1): ±1.0 m/s² in x and y (≈5.8° slope)
+            tilt_range = 1.0 * tp
+            gx = self.np_random.uniform(-tilt_range, tilt_range)
+            gy = self.np_random.uniform(-tilt_range, tilt_range)
+            self.model.opt.gravity[:] = self._default_gravity + np.array([gx, gy, 0.0])
+        else:
+            # Reset to defaults when terrain curriculum is off
+            self.model.geom_friction[:] = self._default_friction
+            self.model.opt.gravity[:] = self._default_gravity
         
         # Small random perturbation to initial state
         if self.np_random is not None:
@@ -140,10 +180,6 @@ class BeeWalkerEnv(gym.Env):
         mujoco.mj_forward(self.model, self.data)
         
         return self._get_obs(), self._get_info()
-    
-    def set_curriculum(self, progress):
-        """Set curriculum progress from 0.0 (easy) to 1.0 (hard)."""
-        self._curriculum_progress = np.clip(progress, 0.0, 1.0)
     
     def step(self, action):
         # Apply action (joint position commands)
