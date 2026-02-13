@@ -67,40 +67,26 @@ def make_env(rank, seed=0):
 class CurriculumCallback(BaseCallback):
     """Advances curriculum difficulty based on training progress.
     
-    Ramps push difficulty from 0.0→1.0 over curriculum_steps timesteps.
-    Ramps terrain randomization from 0.0→1.0 over terrain_steps timesteps.
-    Terrain ramp starts from terrain_start_step (useful when resuming).
+    Single progress ramp from 0.0 (easy) to 1.0 (hard) over curriculum_steps.
+    Controls ALL domain randomization ranges (friction, mass, motor, noise,
+    pushes, gravity tilt) via the env's set_curriculum() method.
     """
     
-    def __init__(self, curriculum_steps=30_000_000, terrain_steps=30_000_000,
-                 terrain_start_step=0, update_freq=20_000):
+    def __init__(self, curriculum_steps=50_000_000, update_freq=20_000):
         super().__init__()
         self.curriculum_steps = curriculum_steps
-        self.terrain_steps = terrain_steps
-        self.terrain_start_step = terrain_start_step
         self.update_freq = update_freq
         self._last_progress = -1.0
-        self._last_terrain = -1.0
     
     def _on_step(self):
         if self.num_timesteps % self.update_freq == 0:
-            # Push curriculum
             progress = min(self.num_timesteps / self.curriculum_steps, 1.0)
             if abs(progress - self._last_progress) >= 0.01:
                 self._last_progress = progress
                 stats["curriculum"] = progress
                 self.training_env.env_method("set_curriculum", progress)
                 phase = min(int(progress * 4) + 1, 4)
-                print(f"  📈 Curriculum: {progress:.0%} (Phase {phase}/4)")
-            
-            # Terrain curriculum (ramps from terrain_start_step)
-            terrain_elapsed = max(self.num_timesteps - self.terrain_start_step, 0)
-            terrain_progress = min(terrain_elapsed / self.terrain_steps, 1.0) if self.terrain_steps > 0 else 0.0
-            if abs(terrain_progress - self._last_terrain) >= 0.01:
-                self._last_terrain = terrain_progress
-                stats["terrain"] = terrain_progress
-                self.training_env.env_method("set_terrain_curriculum", terrain_progress)
-                print(f"  🌍 Terrain: {terrain_progress:.0%} (friction rng + slope)")
+                print(f"  📈 Curriculum: {progress:.0%} (Phase {phase}/4) — all DR ranges widening")
         return True
 
 
@@ -411,10 +397,8 @@ def main():
     parser.add_argument("--n-envs", type=int, default=10, help="Number of parallel envs")
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
     parser.add_argument("--port", type=int, default=1306, help="Web UI port")
-    parser.add_argument("--curriculum-steps", type=int, default=30_000_000,
-                        help="Steps over which to ramp push curriculum (default: 30M)")
-    parser.add_argument("--terrain-steps", type=int, default=30_000_000,
-                        help="Steps over which to ramp terrain randomization (default: 30M)")
+    parser.add_argument("--curriculum-steps", type=int, default=50_000_000,
+                        help="Steps over which to ramp all domain randomization (default: 50M)")
     args = parser.parse_args()
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -431,8 +415,7 @@ def main():
     print(f"  Learning rate:    {args.lr}")
     print(f"  Results:          {run_dir}")
     print(f"  Dashboard:        http://127.0.0.1:{args.port}")
-    print(f"  Curriculum ramp:  {args.curriculum_steps/1e6:.0f}M steps")
-    print(f"  Terrain ramp:     {args.terrain_steps/1e6:.0f}M steps")
+    print(f"  Curriculum ramp:  {args.curriculum_steps/1e6:.0f}M steps (all DR)")
     print("=" * 60)
     
     # Save run config
@@ -501,11 +484,7 @@ def main():
     
     # Callbacks
     train_cb = TrainingCallback(eval_env, run_dir / "videos", video_freq=100_000, plot_freq=10_000)
-    curriculum_cb = CurriculumCallback(
-        curriculum_steps=args.curriculum_steps,
-        terrain_steps=args.terrain_steps,
-        terrain_start_step=model.num_timesteps if args.resume else 0
-    )
+    curriculum_cb = CurriculumCallback(curriculum_steps=args.curriculum_steps)
     checkpoint_cb = CheckpointCallback(
         save_freq=500_000 // args.n_envs,
         save_path=str(run_dir / "checkpoints"),

@@ -1,6 +1,14 @@
 """
 BeeWalker Gymnasium Environment
-Custom environment for PPO training with IMU sensor feedback.
+Custom environment for PPO training with domain randomization from step 0.
+
+Domain randomization (all per-episode, controlled by curriculum):
+  - Friction: 0.8-1.2x → 0.3-2.0x
+  - Link masses: ±5% → ±20%
+  - Motor strength: ±5% → ±15%
+  - Gravity tilt: ±0.1 → ±1.0 m/s²
+  - Push force: 0.1-0.3N → 0.5-1.5N
+  - Observation noise: σ=0.01 → σ=0.05
 """
 import os
 os.environ['MUJOCO_GL'] = 'egl'
@@ -13,7 +21,7 @@ import mujoco
 
 class BeeWalkerEnv(gym.Env):
     """
-    BeeWalker bipedal robot environment.
+    BeeWalker bipedal robot environment with full domain randomization.
     
     Observation space (22 dims):
         - Pelvis orientation quaternion (4)
@@ -21,7 +29,6 @@ class BeeWalkerEnv(gym.Env):
         - Joint positions (6)
         - Joint velocities (6)
         - IMU accelerometer (3) - from MPU-6050
-        - (Note: gyro is redundant with angular velocity)
     
     Action space (6 dims):
         - Joint position commands for hip, knee, ankle (left/right)
@@ -45,21 +52,21 @@ class BeeWalkerEnv(gym.Env):
         self.max_episode_steps = max_episode_steps
         self._step_count = 0
         
-        # === CURRICULUM LEARNING ===
-        # Progress from 0.0 (easy) to 1.0 (hard) over training
-        # Phase 1 (0.0-0.25): Gentle — learn to stand and walk
-        # Phase 2 (0.25-0.5): Medium — light pushes, normal episodes
-        # Phase 3 (0.5-0.75): Hard — stronger pushes, tighter termination
-        # Phase 4 (0.75-1.0): Expert — full difficulty, domain randomization
-        self._curriculum_progress = 0.0  # Set externally by training callback
+        # === CURRICULUM ===
+        # Single progress variable: 0.0 (easy) → 1.0 (hard)
+        # Controls ALL randomization ranges simultaneously
+        self._curriculum_progress = 0.0
         
-        # === TERRAIN RANDOMIZATION ===
-        # Separate progress for terrain difficulty (can ramp independently)
-        # Friction: default sliding friction → random per episode
-        # Gravity tilt: slight x/y gravity components to simulate slopes
-        self._terrain_progress = 0.0  # Set externally by training callback
-        self._default_friction = self.model.geom_friction.copy()  # Store defaults
-        self._default_gravity = self.model.opt.gravity.copy()      # [0, 0, -9.81]
+        # === STORE DEFAULTS for domain randomization ===
+        self._default_friction = self.model.geom_friction.copy()
+        self._default_gravity = self.model.opt.gravity.copy()  # [0, 0, -9.81]
+        self._default_mass = self.model.body_mass.copy()
+        
+        # Per-episode randomization values (set in reset)
+        self._motor_strength_scale = 1.0  # Applied in step()
+        self._obs_noise_std = 0.01        # Applied in _get_obs()
+        self._push_strength = 0.1         # Applied in step()
+        self._push_interval = 100         # Applied in step()
         
         # Action space: joint position commands [-1.57, 1.57] rad
         self.action_space = spaces.Box(
@@ -86,7 +93,7 @@ class BeeWalkerEnv(gym.Env):
             self._joint_qpos_indices.append(qpos_adr)
             self._joint_qvel_indices.append(qvel_adr)
         
-        # Body ID for domain randomization (random pushes)
+        # Body ID for pushes
         self._pelvis_body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "pelvis")
         
         # Sensor indices
@@ -100,7 +107,7 @@ class BeeWalkerEnv(gym.Env):
         self._angvel_adr = self.model.sensor_adr[self._angvel_sensor_id]
     
     def _get_obs(self):
-        """Construct observation vector."""
+        """Construct observation vector with per-step noise."""
         # Pelvis orientation (quaternion from sensor)
         quat = self.data.sensordata[self._quat_adr:self._quat_adr+4].copy()
         
@@ -124,6 +131,11 @@ class BeeWalkerEnv(gym.Env):
             accel,      # 3
         ]).astype(np.float32)
         
+        # === OBSERVATION NOISE (per-step) ===
+        # Simulates sensor imperfection — the model can never fully trust its inputs
+        if self.np_random is not None and self._obs_noise_std > 0:
+            obs += self.np_random.normal(0, self._obs_noise_std, size=obs.shape).astype(np.float32)
+        
         return obs
     
     def _get_info(self):
@@ -138,9 +150,60 @@ class BeeWalkerEnv(gym.Env):
         """Set curriculum progress from 0.0 (easy) to 1.0 (hard)."""
         self._curriculum_progress = np.clip(progress, 0.0, 1.0)
     
-    def set_terrain_curriculum(self, progress):
-        """Set terrain randomization intensity from 0.0 (none) to 1.0 (full)."""
-        self._terrain_progress = np.clip(progress, 0.0, 1.0)
+    def _randomize_domain(self):
+        """Apply per-episode domain randomization scaled by curriculum progress.
+        
+        All randomization starts mild and widens with curriculum:
+          progress=0.0: Nearly deterministic (±5% variations)
+          progress=1.0: Full randomization (wide ranges)
+        """
+        p = self._curriculum_progress
+        rng = self.np_random
+        
+        if rng is None:
+            return
+        
+        # --- Friction ---
+        # Range widens: [0.95, 1.05] → [0.3, 2.0]
+        friction_lo = 1.0 - (0.05 + 0.65 * p)  # 0.95 → 0.3
+        friction_hi = 1.0 + (0.05 + 0.95 * p)  # 1.05 → 2.0
+        friction_scale = rng.uniform(friction_lo, friction_hi)
+        self.model.geom_friction[:] = self._default_friction * friction_scale
+        
+        # --- Link masses ---
+        # Range widens: ±5% → ±20%
+        mass_range = 0.05 + 0.15 * p  # 0.05 → 0.20
+        for i in range(self.model.nbody):
+            if self._default_mass[i] > 0.001:  # Skip massless bodies
+                scale = rng.uniform(1.0 - mass_range, 1.0 + mass_range)
+                self.model.body_mass[i] = self._default_mass[i] * scale
+        
+        # --- Motor strength ---
+        # Scale factor per episode: easy ±5%, hard ±15%
+        motor_range = 0.05 + 0.10 * p  # 0.05 → 0.15
+        self._motor_strength_scale = rng.uniform(1.0 - motor_range, 1.0 + motor_range)
+        
+        # --- Gravity tilt (simulate slopes) ---
+        # Easy: ±0.1 m/s² (~0.6°), Hard: ±1.0 m/s² (~5.8°)
+        tilt_range = 0.1 + 0.9 * p
+        gx = rng.uniform(-tilt_range, tilt_range)
+        gy = rng.uniform(-tilt_range, tilt_range)
+        self.model.opt.gravity[:] = self._default_gravity + np.array([gx, gy, 0.0])
+        
+        # --- Observation noise ---
+        # Easy: σ=0.01, Hard: σ=0.05
+        self._obs_noise_std = 0.01 + 0.04 * p
+        
+        # --- Push parameters ---
+        # Push strength: easy 0.1-0.3N, hard 0.5-1.5N
+        push_lo = 0.1 + 0.4 * p   # 0.1 → 0.5
+        push_hi = 0.3 + 1.2 * p   # 0.3 → 1.5
+        self._push_strength = rng.uniform(push_lo, push_hi)
+        
+        # Push interval: easy 80-120 steps, hard 25-60 steps
+        interval_lo = int(80 - 55 * p)   # 80 → 25
+        interval_hi = int(120 - 60 * p)  # 120 → 60
+        self._push_interval = rng.integers(max(interval_lo, 25), max(interval_hi, 30) + 1)
     
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -148,29 +211,8 @@ class BeeWalkerEnv(gym.Env):
         mujoco.mj_resetData(self.model, self.data)
         self._step_count = 0
         
-        # === TERRAIN RANDOMIZATION (per-episode) ===
-        if self.np_random is not None and self._terrain_progress > 0.01:
-            tp = self._terrain_progress
-            
-            # Friction randomization: narrow range → wide range
-            # Easy (tp=0): friction = default (no change)
-            # Hard (tp=1): friction = 0.3x to 2.0x default
-            friction_lo = 1.0 - 0.7 * tp   # 1.0 → 0.3
-            friction_hi = 1.0 + 1.0 * tp   # 1.0 → 2.0
-            friction_scale = self.np_random.uniform(friction_lo, friction_hi)
-            self.model.geom_friction[:] = self._default_friction * friction_scale
-            
-            # Gravity tilt to simulate slopes
-            # Easy (tp=0): no tilt
-            # Hard (tp=1): ±1.0 m/s² in x and y (≈5.8° slope)
-            tilt_range = 1.0 * tp
-            gx = self.np_random.uniform(-tilt_range, tilt_range)
-            gy = self.np_random.uniform(-tilt_range, tilt_range)
-            self.model.opt.gravity[:] = self._default_gravity + np.array([gx, gy, 0.0])
-        else:
-            # Reset to defaults when terrain curriculum is off
-            self.model.geom_friction[:] = self._default_friction
-            self.model.opt.gravity[:] = self._default_gravity
+        # === DOMAIN RANDOMIZATION (per-episode) ===
+        self._randomize_domain()
         
         # Small random perturbation to initial state
         if self.np_random is not None:
@@ -182,21 +224,15 @@ class BeeWalkerEnv(gym.Env):
         return self._get_obs(), self._get_info()
     
     def step(self, action):
-        # Apply action (joint position commands)
+        # Apply action with motor strength randomization
         action = np.clip(action, -1.57, 1.57)
-        self.data.ctrl[:6] = action
+        self.data.ctrl[:6] = action * self._motor_strength_scale
         
-        # === CURRICULUM-SCALED PUSHES ===
-        # Push strength: 0.1N (easy) → 1.0N (hard)
-        push_strength = 0.1 + 0.9 * self._curriculum_progress
-        # Push frequency: every 100 steps/2s (easy) → every 25 steps/0.5s (hard)
-        push_interval = int(100 - 75 * self._curriculum_progress)
-        push_interval = max(push_interval, 25)
-        
-        if self._step_count % push_interval == 0 and self.np_random is not None:
-            push = self.np_random.uniform(-push_strength, push_strength, size=3)
+        # === PUSH PERTURBATIONS ===
+        if self._step_count % self._push_interval == 0 and self.np_random is not None:
+            push = self.np_random.uniform(-self._push_strength, self._push_strength, size=3)
             self.data.xfrc_applied[self._pelvis_body_id, :3] = push
-        elif self._step_count % push_interval == 1:
+        elif self._step_count % self._push_interval == 1:
             self.data.xfrc_applied[self._pelvis_body_id, :3] = 0  # Clear after 1 step
         
         # Step simulation: 10 substeps at 0.002s = 20ms per env step = 50Hz policy
@@ -205,7 +241,7 @@ class BeeWalkerEnv(gym.Env):
         
         self._step_count += 1
         
-        # Get observation
+        # Get observation (with noise)
         obs = self._get_obs()
         
         # Compute reward
@@ -227,53 +263,52 @@ class BeeWalkerEnv(gym.Env):
         
         # Forward velocity reward (reduced weight to avoid exploitation)
         forward_vel = pelvis_vel[3]  # Linear velocity X
-        velocity_reward = forward_vel * 1.0  # Lowered from 2.0
+        velocity_reward = forward_vel * 1.0
         
         # Standing-still penalty — make standing unprofitable
-        # Without this, the model exploits upright+height+survival bonuses by not moving
         if abs(forward_vel) < 0.05:
             velocity_reward = -2.0
         
         # Upright reward - pelvis z-axis should point up
         pelvis_mat = self.data.body("pelvis").xmat.reshape(3, 3)
         upright = pelvis_mat[2, 2]  # Z component of body's Z axis
-        upright_reward = upright * 1.0  # Increased from 0.5
+        upright_reward = upright * 1.0
         
         # Height bonus - encourage staying at good height
         height = pelvis_pos[2]
         height_reward = 0.5 if height > 0.15 else 0.0
         
-        # Energy penalty - discourage excessive joint torques (balanced)
-        ctrl_cost = 0.005 * np.sum(action**2)  # Reduced from 0.01
+        # Energy penalty - discourage excessive joint torques
+        ctrl_cost = 0.005 * np.sum(action**2)
         
         # Joint velocity penalty - penalize jerky motion
-        joint_vel = self.data.qvel[6:12]  # Joint velocities
+        joint_vel = self.data.qvel[6:12]
         jerk_penalty = 0.005 * np.sum(joint_vel**2)
         
         # Lateral drift penalty
-        lateral_vel = abs(pelvis_vel[4])  # Linear velocity Y
-        drift_penalty = 0.2 * lateral_vel  # Increased from 0.1
+        lateral_vel = abs(pelvis_vel[4])
+        drift_penalty = 0.2 * lateral_vel
         
-        # Foot alternation bonus — STRONGER emphasis (encourage stepping)
+        # Foot alternation bonus — encourage stepping
         left_foot_z = self.data.body("left_foot").xpos[2]
         right_foot_z = self.data.body("right_foot").xpos[2]
         foot_diff = abs(left_foot_z - right_foot_z)
-        stepping_bonus = foot_diff * 3.0  # Increased from 2.0
+        stepping_bonus = foot_diff * 3.0
         
         # === REFERENCE MOTION REWARD ===
-        # 1.5Hz gait (~90 steps/min, more human-like than 2Hz)
+        # 1.5Hz gait (~90 steps/min, human-like)
         phase = (self._step_count / 50.0) * 2.0 * np.pi * 1.5
         ref_joints = np.array([
-            0.35 * np.sin(phase),             # left hip (slightly reduced)
-           -0.25 * np.cos(phase),             # left knee
-            0.1 * np.sin(phase),              # left ankle
-           -0.35 * np.sin(phase),             # right hip (anti-phase)
-           -0.25 * np.cos(phase + np.pi),     # right knee (anti-phase)
-           -0.1 * np.sin(phase),              # right ankle (anti-phase)
+            0.35 * np.sin(phase),
+           -0.25 * np.cos(phase),
+            0.1 * np.sin(phase),
+           -0.35 * np.sin(phase),
+           -0.25 * np.cos(phase + np.pi),
+           -0.1 * np.sin(phase),
         ])
         joint_pos = np.array([self.data.qpos[i] for i in self._joint_qpos_indices])
         ref_error = np.sum((joint_pos - ref_joints) ** 2)
-        reference_reward = 1.5 * np.exp(-2.0 * ref_error)  # Increased from 1.0
+        reference_reward = 1.5 * np.exp(-2.0 * ref_error)
         
         # Survival bonus
         survival_bonus = 0.1
@@ -303,8 +338,6 @@ class BeeWalkerEnv(gym.Env):
             return True
         
         # Tilt threshold: lenient early (0.1) → strict later (0.3)
-        # Early: only terminate at extreme tilt, giving model time to recover
-        # Late: terminate at moderate tilt, forcing clean walking
         tilt_threshold = 0.1 + 0.2 * self._curriculum_progress
         if upright < tilt_threshold:
             return True
@@ -323,12 +356,12 @@ class BeeWalkerEnv(gym.Env):
             self._camera.azimuth = 130
             self._cam_target = np.array([0.0, 0.0, 0.25])
         
-        # Smooth camera tracking — slow lerp, locked vertical
+        # Smooth camera tracking
         pelvis = self.data.body("pelvis").xpos
-        smooth = 0.05  # Low = cinematic glide, high = jerky
+        smooth = 0.05
         self._cam_target[0] += smooth * (pelvis[0] - self._cam_target[0])
         self._cam_target[1] += smooth * (pelvis[1] - self._cam_target[1])
-        self._cam_target[2] = 0.22  # Fixed height — no vertical bobbing
+        self._cam_target[2] = 0.22
         self._camera.lookat[:] = self._cam_target
         self._renderer.update_scene(self.data, camera=self._camera)
         return self._renderer.render()
