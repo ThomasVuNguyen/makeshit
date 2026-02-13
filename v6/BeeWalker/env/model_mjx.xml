@@ -1,0 +1,182 @@
+<mujoco model="BeeWalker">
+  <compiler angle="degree" coordinate="local" inertiafromgeom="true"/>
+  <!-- timestep=0.02 so 1 MJX step = 1 control step (50Hz control rate) -->
+  <option timestep="0.02" gravity="0 0 -9.81"/>
+
+  <visual>
+    <global offwidth="1280" offheight="720"/>
+    <quality shadowsize="4096"/>
+    <map fogstart="6" fogend="18"/>
+    <headlight ambient="0.18 0.2 0.22" diffuse="0 0 0" specular="0 0 0"/>
+  </visual>
+
+  <default>
+    <joint armature="0.01" damping="0.5" limited="true"/>
+    <geom condim="3" friction="1.0 0.5 0.5" margin="0.001"/>
+    <motor ctrlrange="-1.57 1.57" ctrllimited="true"/> 
+    
+    <!-- COMPONENTS: servo horn changed from cylinder to capsule for MJX -->
+    <default class="servo_case">
+        <geom type="box" size="0.02 0.01 0.02" rgba="0.1 0.1 0.1 1" mass="0.055"/>
+    </default>
+    <default class="servo_horn">
+        <geom type="capsule" size="0.01 0.003" rgba="0.8 0.8 0.8 1" mass="0.005"/>
+    </default>
+    
+    <!-- BRACKETS (Generic Plate) -->
+    <default class="plate">
+        <geom type="box" size="0.002 0.02 0.03" rgba="0.6 0.2 0.8 1" mass="0.01"/>
+    </default>
+    
+    <!-- FOOT -->
+    <default class="foot_plate">
+        <geom type="box" size="0.015 0.02 0.002" rgba="0.9 0.8 0.1 1" mass="0.03"/>
+    </default>
+    
+    <!-- TORSO/HEAD BODY -->
+    <default class="torso_body">
+        <geom type="box" size="0.03 0.04 0.04" rgba="0.9 0.8 0.1 1" mass="0.2"/>
+    </default>
+  </default>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1=".45 .6 .85" rgb2=".2 .3 .5" width="256" height="256"/>
+    <texture name="grid" type="2d" builtin="checker" width="512" height="512" rgb1=".35 .42 .28" rgb2=".28 .35 .22"/>
+    <material name="grid" texture="grid" texrepeat="12 12" texuniform="true" reflectance=".03"/>
+  </asset>
+
+  <worldbody>
+    <light name="sun" pos="3 2 5" dir="-0.3 -0.2 -0.9" castshadow="true" diffuse="1.3 1.2 1.05" specular="0.4 0.38 0.3"/>
+    <light name="sky" pos="0 0 6" dir="0 0 -1" castshadow="false" diffuse="0.35 0.4 0.5" specular="0.1 0.1 0.12"/>
+    <geom name="floor" type="plane" size="50 50 0.1" material="grid"/>
+
+    <!-- Pelvis/Hip Base - floating root -->
+    <body name="pelvis" pos="0 0 0.25">
+      <freejoint/>
+      
+      <geom name="pelvis_base" type="box" size="0.02 0.04 0.015" rgba="0.6 0.2 0.8 1" mass="0.05"/>
+      
+      <!-- TORSO/HEAD on top -->
+      <body name="torso" pos="0 0 0.055">
+        <geom class="torso_body"/>
+        <!-- Eyes: capsule instead of cylinder for MJX -->
+        <geom type="capsule" size="0.005 0.005" pos="0.03 0.02 0.02" euler="0 90 0" rgba="0 0 0 1"/>
+        <geom type="capsule" size="0.005 0.005" pos="0.03 -0.02 0.02" euler="0 90 0" rgba="0 0 0 1"/>
+        <site name="imu_site" pos="0 0 0" size="0.005"/>
+      </body>
+
+      <!-- ================= LEFT LEG (Y+) ================= -->
+      <body name="left_hip_structure" pos="0 0.035 -0.015">
+          <geom class="servo_case" euler="90 0 0"/> 
+          <geom class="servo_horn" pos="0 0.015 0" euler="90 0 0"/>
+          
+          <body name="left_thigh" pos="0 0 0">
+            <joint name="left_hip_joint" type="hinge" axis="0 1 0" range="-90 90"/>
+            <geom class="plate" pos="0 0.018 -0.03" size="0.01 0.002 0.03"/>
+            <geom class="plate" pos="0 -0.018 -0.03" size="0.01 0.002 0.03"/>
+            <geom class="plate" pos="0 0 -0.06" size="0.01 0.02 0.002"/>
+
+            <body name="left_knee_structure" pos="0 0 -0.065">
+                <geom class="servo_case" euler="90 0 0"/>
+                <geom class="servo_horn" pos="0 0.015 0" euler="90 0 0"/>
+                
+                <body name="left_shin" pos="0 0 0">
+                    <joint name="left_knee_joint" type="hinge" axis="0 1 0" range="-90 90"/>
+                    <geom class="plate" pos="0 0.018 -0.03" size="0.01 0.002 0.03"/>
+                    <geom class="plate" pos="0 -0.018 -0.03" size="0.01 0.002 0.03"/>
+                    <geom class="plate" pos="0 0 -0.06" size="0.01 0.02 0.002"/>
+                    
+                    <body name="left_ankle_structure" pos="0 0 -0.065">
+                         <geom class="servo_case" euler="90 0 0"/>
+                         <geom class="servo_horn" pos="0 0.015 0" euler="90 0 0"/>
+                         
+                         <body name="left_foot" pos="0 0 0">
+                            <joint name="left_ankle_joint" type="hinge" axis="0 1 0" range="-45 45"/>
+                            <geom class="foot_plate" pos="0 0 -0.015"/>
+                         </body>
+                    </body>
+                </body>
+            </body>
+          </body>
+      </body>
+
+      <!-- ================= RIGHT LEG (Y-) ================= -->
+      <body name="right_hip_structure" pos="0 -0.035 -0.015">
+          <geom class="servo_case" euler="90 0 0"/>
+          <geom class="servo_horn" pos="0 -0.015 0" euler="90 0 0"/>
+          
+          <body name="right_thigh" pos="0 0 0">
+            <joint name="right_hip_joint" type="hinge" axis="0 1 0" range="-90 90"/>
+            <geom class="plate" pos="0 -0.018 -0.03" size="0.01 0.002 0.03"/>
+            <geom class="plate" pos="0 0.018 -0.03" size="0.01 0.002 0.03"/>
+            <geom class="plate" pos="0 0 -0.06" size="0.01 0.02 0.002"/>
+
+            <body name="right_knee_structure" pos="0 0 -0.065">
+                <geom class="servo_case" euler="90 0 0"/>
+                <geom class="servo_horn" pos="0 -0.015 0" euler="90 0 0"/>
+                
+                <body name="right_shin" pos="0 0 0">
+                    <joint name="right_knee_joint" type="hinge" axis="0 1 0" range="-90 90"/>
+                    <geom class="plate" pos="0 -0.018 -0.03" size="0.01 0.002 0.03"/>
+                    <geom class="plate" pos="0 0.018 -0.03" size="0.01 0.002 0.03"/>
+                    <geom class="plate" pos="0 0 -0.06" size="0.01 0.02 0.002"/>
+                    
+                    <body name="right_ankle_structure" pos="0 0 -0.065">
+                         <geom class="servo_case" euler="90 0 0"/>
+                         <geom class="servo_horn" pos="0 -0.015 0" euler="90 0 0"/>
+                         
+                         <body name="right_foot" pos="0 0 0">
+                            <joint name="right_ankle_joint" type="hinge" axis="0 1 0" range="-45 45"/>
+                            <geom class="foot_plate" pos="0 0 -0.015"/>
+                         </body>
+                    </body>
+                </body>
+            </body>
+          </body>
+      </body>
+
+    </body>
+  </worldbody>
+
+  <actuator>
+    <general name="servo_left_hip" joint="left_hip_joint" 
+             gainprm="50 0 0" biasprm="0 -50 0"
+             dyntype="filter" dynprm="0.02"
+             ctrllimited="true" ctrlrange="-1.57 1.57"
+             forcelimited="true" forcerange="-0.7 0.7"/>
+    <general name="servo_left_knee" joint="left_knee_joint" 
+             gainprm="50 0 0" biasprm="0 -50 0"
+             dyntype="filter" dynprm="0.02"
+             ctrllimited="true" ctrlrange="-1.57 1.57"
+             forcelimited="true" forcerange="-0.7 0.7"/>
+    <general name="servo_left_ankle" joint="left_ankle_joint" 
+             gainprm="50 0 0" biasprm="0 -50 0"
+             dyntype="filter" dynprm="0.02"
+             ctrllimited="true" ctrlrange="-1.57 1.57"
+             forcelimited="true" forcerange="-0.7 0.7"/>
+    <general name="servo_right_hip" joint="right_hip_joint" 
+             gainprm="50 0 0" biasprm="0 -50 0"
+             dyntype="filter" dynprm="0.02"
+             ctrllimited="true" ctrlrange="-1.57 1.57"
+             forcelimited="true" forcerange="-0.7 0.7"/>
+    <general name="servo_right_knee" joint="right_knee_joint" 
+             gainprm="50 0 0" biasprm="0 -50 0"
+             dyntype="filter" dynprm="0.02"
+             ctrllimited="true" ctrlrange="-1.57 1.57"
+             forcelimited="true" forcerange="-0.7 0.7"/>
+    <general name="servo_right_ankle" joint="right_ankle_joint" 
+             gainprm="50 0 0" biasprm="0 -50 0"
+             dyntype="filter" dynprm="0.02"
+             ctrllimited="true" ctrlrange="-1.57 1.57"
+             forcelimited="true" forcerange="-0.7 0.7"/>
+  </actuator>
+
+  <sensor>
+    <accelerometer name="imu_accel" site="imu_site"/>
+    <gyro name="imu_gyro" site="imu_site"/>
+    <framequat name="pelvis_orientation" objtype="body" objname="pelvis"/>
+    <frameangvel name="pelvis_angvel" objtype="body" objname="pelvis"/>
+    <framexaxis name="pelvis_xaxis" objtype="body" objname="pelvis"/>
+  </sensor>
+
+</mujoco>
