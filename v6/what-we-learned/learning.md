@@ -1,6 +1,6 @@
 # BeeWalker Training — What We've Learned
 
-*Last updated: Feb 10, 2026*
+*Last updated: Feb 13, 2026*
 
 ---
 
@@ -21,7 +21,9 @@ Train a bipedal walking policy in MuJoCo that runs on an **RP2040** (133 MHz, 26
 | 5 | LSTM v2 | Feb 8–9 | RecurrentPPO, 10 envs, LR 3e-4 | **17.5M** | **874.6** | 🏆 Best model ever |
 | 6 | LSTM Resume | Feb 9 | Resume from #5, intended LR 1e-4 | 17.5M→24.1M | 874.6→~300 | ❌ Failed — degraded |
 | 7 | LSTM + Penalty | Feb 9–10 | Standing-still penalty (-2.0), LR fix | **20.3M** | **436.4** | ✅ Real walking, no standing exploit |
-| 8 | LSTM + Curriculum | Feb 10 | Progressive difficulty (pushes, tilt) | In progress | TBD | 🔄 Running now |
+| 8 | LSTM + Curriculum | Feb 10 | Progressive push difficulty | **94.6M** | **984.4** | ✅ Best reward, strong gait |
+| 9 | Terrain Ramp | Feb 12–13 | Added friction+tilt to #8 model | 91→127M | 984→20 | ❌ Catastrophic forgetting at 114M |
+| 10 | Fresh DR | Feb 13 | Full domain randomization from scratch | In progress | TBD | 🔄 Running — all DR from step 0 |
 
 ---
 
