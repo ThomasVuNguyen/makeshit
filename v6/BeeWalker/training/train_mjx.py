@@ -145,8 +145,10 @@ def train(
     total_steps: int = 1_000_000_000,
     hidden_size: int = 32,
     lr: float = 3e-4,
+    lr_end: float = 3e-5,
     n_steps: int = 64,
     save_freq: int = 500_000,
+    resume: str = None,
     **kwargs,
 ):
     config = PPOConfig(lr=lr, n_steps=n_steps)
@@ -159,7 +161,8 @@ def train(
     
     with open(run_dir / "run_config.json", 'w') as f:
         json.dump({"num_envs": num_envs, "total_steps": total_steps,
-                    "hidden_size": hidden_size, "lr": lr, "n_steps": n_steps}, f, indent=2)
+                    "hidden_size": hidden_size, "lr": lr, "lr_end": lr_end,
+                    "n_steps": n_steps, "resume": resume}, f, indent=2)
     
     print("=" * 60)
     print("🚀 BeeWalker MJX GPU Training")
@@ -187,8 +190,21 @@ def train(
     total_params = sum(x.size for x in jax.tree.leaves(params))
     print(f"  📊 Model: {total_params:,} params ({total_params * 4 / 1024:.1f} KB)")
     
-    optimizer = optax.chain(optax.clip_by_global_norm(config.max_grad_norm), optax.adam(lr))
+    # Load checkpoint if resuming
+    if resume:
+        print(f"  📦 Loading checkpoint: {resume}")
+        params = _load_params(resume, params)
+        print(f"  ✅ Checkpoint loaded")
+    
+    # LR schedule: linear decay from lr → lr_end
+    num_updates = total_steps // (num_envs * n_steps)
+    lr_schedule = optax.linear_schedule(lr, lr_end, num_updates)
+    optimizer = optax.chain(
+        optax.clip_by_global_norm(config.max_grad_norm),
+        optax.adam(learning_rate=lr_schedule),
+    )
     opt_state = optimizer.init(params)
+    print(f"  📉 LR schedule: {lr} → {lr_end} over {num_updates:,} updates")
     
     # ---- Initialize envs ----
     print("⏳ Initializing environments...")
@@ -462,14 +478,34 @@ def _save_params(params, path):
     np.savez(str(path), **flat)
 
 
+def _load_params(path, template_params):
+    """Load params from npz, reconstructing the tree structure."""
+    import re
+    data = np.load(str(path), allow_pickle=True)
+    params = {}
+    for key in data.files:
+        clean_key = re.sub(r"\['(.+?)'\]", r"\1", key)
+        parts = clean_key.split('/')
+        d = params
+        for part in parts[:-1]:
+            if part not in d:
+                d[part] = {}
+            d = d[part]
+        d[parts[-1]] = data[key]
+    return params
+
+
 def main():
     parser = argparse.ArgumentParser(description="BeeWalker MJX GPU Training")
     parser.add_argument("--num-envs", type=int, default=512)
     parser.add_argument("--total-steps", type=int, default=1_000_000_000)
     parser.add_argument("--hidden-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--lr-end", type=float, default=3e-5)
     parser.add_argument("--n-steps", type=int, default=64)
     parser.add_argument("--save-freq", type=int, default=500_000)
+    parser.add_argument("--resume", type=str, default=None,
+                        help="Path to checkpoint .npz to resume from")
     args = parser.parse_args()
     
     train(
@@ -477,8 +513,10 @@ def main():
         total_steps=args.total_steps,
         hidden_size=args.hidden_size,
         lr=args.lr,
+        lr_end=args.lr_end,
         n_steps=args.n_steps,
         save_freq=args.save_freq,
+        resume=args.resume,
     )
 
 

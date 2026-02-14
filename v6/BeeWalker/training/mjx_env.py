@@ -134,10 +134,10 @@ class BeeWalkerMJXEnv:
     # ------------------------------------------------------------------
     
     def _compute_reward(self, state: EnvState, action: jnp.ndarray) -> jnp.ndarray:
-        """Reward computation — speed config from CPU env.
+        """Reward computation — tuned speed config.
         
-        Weights: velocity=5.0, upright=0.3, stepping=1.0, ctrl_cost=0.0001,
-                 height=0.5, drift_penalty=0.1, reference_motion=1.0, survival=0.1
+        Changes from v1: capped velocity reward (prevents diving),
+        higher alive bonus (incentivizes longer episodes).
         """
         d = state.mjx_data
         
@@ -148,9 +148,10 @@ class BeeWalkerMJXEnv:
         forward_vel = pelvis_vel[3]
         upright = pelvis_mat[2, 2]
         
-        # Velocity with standing-still penalty
+        # Velocity — capped to prevent short-burst diving exploits
         velocity_reward = jnp.where(
-            jnp.abs(forward_vel) < 0.05, -2.0, forward_vel * 5.0
+            jnp.abs(forward_vel) < 0.05, -2.0,
+            jnp.clip(forward_vel * 5.0, -5.0, 3.0)
         )
         
         upright_reward = upright * 0.3
@@ -177,8 +178,11 @@ class BeeWalkerMJXEnv:
         ref_error = jnp.sum((d.qpos[self.joint_qpos_idx] - ref_joints) ** 2)
         reference_reward = jnp.exp(-2.0 * ref_error)
         
+        # Alive bonus — larger to reward sustained walking over diving
+        alive_bonus = 1.0
+        
         total = (velocity_reward + upright_reward + height_reward +
-                 stepping_reward + reference_reward + 0.1 -  # 0.1 = survival
+                 stepping_reward + reference_reward + alive_bonus -
                  ctrl_cost - drift_penalty)
         
         return total
@@ -194,7 +198,7 @@ class BeeWalkerMJXEnv:
         upright = d.xmat[self.pelvis_id].reshape(3, 3)[2, 2]
         
         tilt_threshold = 0.1 + 0.2 * state.curriculum
-        fallen = pelvis_z < 0.08
+        fallen = pelvis_z < 0.05
         tilted = upright < tilt_threshold
         
         return fallen | tilted
