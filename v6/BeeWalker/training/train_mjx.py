@@ -35,6 +35,27 @@ from training.mjx_env import BeeWalkerMJXEnv, EnvState
 
 
 # ============================================================================
+# REFERENCE GAIT
+# ============================================================================
+
+def compute_ref_actions(step_counts):
+    """Compute reference sine gait actions from step count.
+    
+    This is the same 2Hz sine wave used in the reward function.
+    Returns (batch_size, 6) joint targets.
+    """
+    phase = (step_counts / 50.0) * 2.0 * jnp.pi * 2.0
+    return jnp.stack([
+         0.4 * jnp.sin(phase),
+        -0.3 * jnp.cos(phase),
+         0.1 * jnp.sin(phase),
+        -0.4 * jnp.sin(phase),
+        -0.3 * jnp.cos(phase + jnp.pi),
+        -0.1 * jnp.sin(phase),
+    ], axis=-1)
+
+
+# ============================================================================
 # NEURAL NETWORK
 # ============================================================================
 
@@ -68,6 +89,78 @@ class ActorCritic(nn.Module):
     
     def initial_lstm_state(self):
         return (jnp.zeros(self.hidden_size), jnp.zeros(self.hidden_size))
+
+
+# ============================================================================
+# BEHAVIORAL CLONING PRE-TRAINING
+# ============================================================================
+
+def pretrain_bc(params, network, env, num_envs, hidden_size, num_iters=200):
+    """Pre-train policy to imitate reference sine gait via behavioral cloning.
+    
+    Rolls out the reference gait in MJX, collects (obs, ref_action) pairs,
+    and trains the policy with MSE loss. This gives the agent approximate
+    walking before RL fine-tuning begins.
+    """
+    print(f"\n{'='*60}")
+    print(f"📚 Behavioral Cloning Pre-training ({num_iters} iterations)")
+    print(f"{'='*60}")
+    
+    bc_lr = 1e-3
+    bc_opt = optax.adam(bc_lr)
+    bc_state = bc_opt.init(params)
+    
+    batched_reset = jax.vmap(env.reset)
+    batched_step = jax.vmap(env.step)
+    batched_obs = jax.vmap(env.get_obs)
+    
+    @jax.jit
+    def bc_update(params, bc_state, obs, ref_actions, lstm_h, lstm_c):
+        """Single BC gradient step: MSE between policy output and reference."""
+        def loss_fn(params):
+            def single(o, h, c, ref):
+                mean, _, _, (nh, nc) = network.apply({'params': params}, o, (h, c))
+                return jnp.mean((mean - ref) ** 2), (nh, nc)
+            losses, (new_h, new_c) = jax.vmap(single)(obs, lstm_h, lstm_c, ref_actions)
+            return jnp.mean(losses), (new_h, new_c)
+        
+        (loss, (new_h, new_c)), grads = jax.value_and_grad(loss_fn, has_aux=True)(params)
+        updates, bc_state = bc_opt.update(grads, bc_state, params)
+        params = optax.apply_updates(params, updates)
+        return params, bc_state, loss, new_h, new_c
+    
+    rng = jax.random.PRNGKey(123)
+    t0 = time.time()
+    
+    for it in range(num_iters):
+        # Fresh episodes each iteration
+        rng, key = jax.random.split(rng)
+        keys = jax.random.split(key, num_envs)
+        states = batched_reset(keys)
+        lstm_h = jnp.zeros((num_envs, hidden_size))
+        lstm_c = jnp.zeros((num_envs, hidden_size))
+        
+        total_loss = 0.0
+        n_steps = 64
+        
+        for t in range(n_steps):
+            obs = batched_obs(states)
+            ref_actions = compute_ref_actions(states.step_count)
+            params, bc_state, loss, lstm_h, lstm_c = bc_update(
+                params, bc_state, obs, ref_actions, lstm_h, lstm_c)
+            # Step env with reference actions (to get realistic obs)
+            states, _, _, _, _ = batched_step(states, ref_actions)
+            total_loss += float(loss)
+        
+        avg_loss = total_loss / n_steps
+        if it % 20 == 0 or it == num_iters - 1:
+            elapsed = time.time() - t0
+            print(f"  BC iter {it:3d}/{num_iters} | loss: {avg_loss:.4f} | time: {elapsed:.1f}s")
+    
+    elapsed = time.time() - t0
+    print(f"\n✅ BC pre-training complete in {elapsed:.1f}s")
+    print(f"   Final loss: {avg_loss:.4f}")
+    return params
 
 
 # ============================================================================
@@ -149,6 +242,7 @@ def train(
     n_steps: int = 64,
     save_freq: int = 500_000,
     resume: str = None,
+    pretrain: int = 0,
     **kwargs,
 ):
     config = PPOConfig(lr=lr, n_steps=n_steps)
@@ -172,8 +266,11 @@ def train(
     print(f"  N steps:     {n_steps}")
     print(f"  Batch size:  {num_envs * n_steps:,}")
     print(f"  Hidden size: {hidden_size}")
-    print(f"  LR:          {lr}")
+    print(f"  LR:          {lr} → {lr_end}")
     print(f"  Total steps: {total_steps:,}")
+    print(f"  Pre-train:   {'Yes' if pretrain else 'No'}")
+    if resume:
+        print(f"  Resume from: {resume}")
     print(f"  Results:     {run_dir}")
     print("=" * 60)
     
@@ -205,6 +302,14 @@ def train(
     )
     opt_state = optimizer.init(params)
     print(f"  📉 LR schedule: {lr} → {lr_end} over {num_updates:,} updates")
+    
+    # ---- Pre-train with behavioral cloning ----
+    if pretrain and not resume:
+        params = pretrain_bc(params, network, env, num_envs, hidden_size, num_iters=pretrain)
+        # Re-init optimizer with pre-trained params
+        opt_state = optimizer.init(params)
+        _save_params(params, run_dir / "pretrained_model.npz")
+        print("  💾 Pre-trained params saved")
     
     # ---- Initialize envs ----
     print("⏳ Initializing environments...")
@@ -506,6 +611,8 @@ def main():
     parser.add_argument("--save-freq", type=int, default=500_000)
     parser.add_argument("--resume", type=str, default=None,
                         help="Path to checkpoint .npz to resume from")
+    parser.add_argument("--pretrain", type=int, default=0,
+                        help="BC pre-training iterations (0=disable, 200=recommended)")
     args = parser.parse_args()
     
     train(
@@ -517,6 +624,7 @@ def main():
         n_steps=args.n_steps,
         save_freq=args.save_freq,
         resume=args.resume,
+        pretrain=args.pretrain,
     )
 
 
