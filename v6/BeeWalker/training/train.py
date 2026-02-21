@@ -128,8 +128,26 @@ REWARD_CONFIGS = {
 class ConfigurableRewardEnv(BeeWalkerEnv):
     """BeeWalker environment with configurable reward function."""
     
-    def __init__(self, reward_config: RewardConfig, render_mode=None, max_episode_steps=1000):
-        super().__init__(render_mode=render_mode, max_episode_steps=max_episode_steps)
+    def __init__(
+        self,
+        reward_config: RewardConfig,
+        render_mode=None,
+        max_episode_steps=1000,
+        residual_action=False,
+        phase_features=False,
+        residual_limit=0.35,
+        reference_gait_scale=1.0,
+        gait_frequency_hz=2.0,
+    ):
+        super().__init__(
+            render_mode=render_mode,
+            max_episode_steps=max_episode_steps,
+            residual_action=residual_action,
+            phase_features=phase_features,
+            residual_limit=residual_limit,
+            reference_gait_scale=reference_gait_scale,
+            gait_frequency_hz=gait_frequency_hz,
+        )
         self.reward_config = reward_config
         self._prev_joint_pos = None
         self._prev_left_foot_z = 0
@@ -217,16 +235,8 @@ class ConfigurableRewardEnv(BeeWalkerEnv):
             exploration_bonus = cfg.exploration_bonus * joint_vel
         
         # === REFERENCE MOTION REWARD ===
-        # Sine-wave walking reference at 2Hz — soft bonus for tracking
-        phase = (self._step_count / 50.0) * 2.0 * np.pi * 2.0  # 2Hz gait at 50Hz control
-        ref_joints = np.array([
-            0.4 * np.sin(phase),             # left hip
-           -0.3 * np.cos(phase),             # left knee
-            0.1 * np.sin(phase),             # left ankle
-           -0.4 * np.sin(phase),             # right hip (anti-phase)
-           -0.3 * np.cos(phase + np.pi),     # right knee (anti-phase)
-           -0.1 * np.sin(phase),             # right ankle (anti-phase)
-        ])
+        # Soft bonus for tracking phase reference gait.
+        ref_joints = self._reference_joint_targets()
         joint_pos = np.array([self.data.qpos[i] for i in self._joint_qpos_indices])
         ref_error = np.sum((joint_pos - ref_joints) ** 2)
         reference_reward = 1.0 * np.exp(-2.0 * ref_error)  # 0 to 1.0 bonus

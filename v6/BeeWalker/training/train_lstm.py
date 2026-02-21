@@ -52,10 +52,13 @@ stats = {"steps": 0, "reward": 0, "best": 0, "ep_len": 0, "fps": 0, "curriculum"
 run_dir = None  # Set in main()
 
 
-def make_env(rank, seed=0):
+def make_env(rank, seed=0, env_kwargs=None):
+    if env_kwargs is None:
+        env_kwargs = {}
+
     def _init():
         from gymnasium.wrappers import TimeLimit
-        env = ConfigurableRewardEnv(config, render_mode="rgb_array")
+        env = ConfigurableRewardEnv(config, render_mode="rgb_array", **env_kwargs)
         env = TimeLimit(env, max_episode_steps=1000)  # Force episode end for stats
         env = Monitor(env)  # Track episode stats
         env.reset(seed=seed + rank)
@@ -388,6 +391,22 @@ def video(filename):
 # MAIN
 # ============================================================================
 
+def _parse_arch(arch_str: str, arg_name: str):
+    parts = [p.strip() for p in arch_str.split(",") if p.strip()]
+    if not parts:
+        raise ValueError(f"{arg_name} cannot be empty")
+    arch = []
+    for p in parts:
+        try:
+            v = int(p)
+        except ValueError as exc:
+            raise ValueError(f"{arg_name} must be comma-separated ints, got '{arch_str}'") from exc
+        if v <= 0:
+            raise ValueError(f"{arg_name} values must be > 0, got {v}")
+        arch.append(v)
+    return arch
+
+
 def main():
     global run_dir
     
@@ -399,7 +418,44 @@ def main():
     parser.add_argument("--port", type=int, default=1306, help="Web UI port")
     parser.add_argument("--curriculum-steps", type=int, default=50_000_000,
                         help="Steps over which to ramp all domain randomization (default: 50M)")
+    parser.add_argument("--residual-action", action="store_true",
+                        help="Use residual actions around a phase-based gait reference")
+    parser.add_argument("--phase-features", action="store_true",
+                        help="Append sin/cos phase features to observations")
+    parser.add_argument("--residual-limit", type=float, default=0.35,
+                        help="Residual action limit in radians when residual mode is enabled")
+    parser.add_argument("--reference-gait-scale", type=float, default=1.0,
+                        help="Scale factor for the built-in phase reference gait")
+    parser.add_argument("--gait-frequency-hz", type=float, default=2.0,
+                        help="Reference gait frequency in Hz")
+    parser.add_argument("--teacher-size", choices=["none", "medium", "large"], default="none",
+                        help="Teacher preset: medium=(LSTM64, heads 128,128), large=(LSTM128, heads 256,128)")
+    parser.add_argument("--pi-arch", type=str, default="64",
+                        help="Policy MLP head sizes, comma-separated (e.g. 256,128)")
+    parser.add_argument("--vf-arch", type=str, default="64",
+                        help="Value MLP head sizes, comma-separated (e.g. 256,128)")
     args = parser.parse_args()
+
+    # Optional teacher presets for larger-capacity policies.
+    if args.teacher_size == "medium":
+        args.hidden_size = 64
+        args.pi_arch = "128,128"
+        args.vf_arch = "128,128"
+    elif args.teacher_size == "large":
+        args.hidden_size = 128
+        args.pi_arch = "256,128"
+        args.vf_arch = "256,128"
+
+    pi_arch = _parse_arch(args.pi_arch, "--pi-arch")
+    vf_arch = _parse_arch(args.vf_arch, "--vf-arch")
+
+    env_kwargs = {
+        "residual_action": args.residual_action,
+        "phase_features": args.phase_features,
+        "residual_limit": args.residual_limit,
+        "reference_gait_scale": args.reference_gait_scale,
+        "gait_frequency_hz": args.gait_frequency_hz,
+    }
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = BEEWALKER_ROOT / f"results/lstm_{timestamp}"
@@ -416,16 +472,33 @@ def main():
     print(f"  Results:          {run_dir}")
     print(f"  Dashboard:        http://127.0.0.1:{args.port}")
     print(f"  Curriculum ramp:  {args.curriculum_steps/1e6:.0f}M steps (all DR)")
+    print(f"  Residual action:  {args.residual_action}")
+    print(f"  Phase features:   {args.phase_features}")
+    if args.residual_action:
+        print(f"  Residual limit:   {args.residual_limit:.3f} rad")
+    print(f"  Gait ref scale:   {args.reference_gait_scale:.3f}")
+    print(f"  Gait ref freq:    {args.gait_frequency_hz:.2f} Hz")
+    print(f"  Teacher preset:   {args.teacher_size}")
+    print(f"  Pi arch:          {pi_arch}")
+    print(f"  Vf arch:          {vf_arch}")
     print("=" * 60)
     
     # Save run config
     run_config = {
         "lstm_hidden_size": args.hidden_size,
+        "pi_arch": pi_arch,
+        "vf_arch": vf_arch,
+        "teacher_size": args.teacher_size,
         "n_envs": args.n_envs,
         "learning_rate": args.lr,
         "reward_config": "speed",
         "timestamp": timestamp,
         "resume_from": args.resume,
+        "residual_action": args.residual_action,
+        "phase_features": args.phase_features,
+        "residual_limit": args.residual_limit,
+        "reference_gait_scale": args.reference_gait_scale,
+        "gait_frequency_hz": args.gait_frequency_hz,
     }
     with open(run_dir / "run_config.json", 'w') as f:
         json.dump(run_config, f, indent=2)
@@ -438,8 +511,8 @@ def main():
     flask_thread.start()
     
     # Create environments
-    env = SubprocVecEnv([make_env(i) for i in range(args.n_envs)])
-    eval_env = ConfigurableRewardEnv(config, render_mode="rgb_array")
+    env = SubprocVecEnv([make_env(i, env_kwargs=env_kwargs) for i in range(args.n_envs)])
+    eval_env = ConfigurableRewardEnv(config, render_mode="rgb_array", **env_kwargs)
     
     if args.resume:
         print(f"\n📂 Resuming from: {args.resume}")
@@ -470,7 +543,7 @@ def main():
                 n_lstm_layers=1,
                 shared_lstm=False,
                 enable_critic_lstm=True,
-                net_arch=dict(pi=[64], vf=[64]),
+                net_arch=dict(pi=pi_arch, vf=vf_arch),
             ),
             tensorboard_log=str(run_dir / "tensorboard"),
             verbose=1,

@@ -31,6 +31,9 @@ BeeWalker/
 # Train (launches dashboard at :1306)
 python3 training/train_lstm.py
 
+# Train a larger teacher policy (example: ~2M params)
+python3 training/train_lstm.py --hidden-size 320 --pi-arch 768,384 --vf-arch 768,384
+
 # Resume from checkpoint
 python3 training/train_lstm.py --resume results/<run>/checkpoints/lstm_500000_steps.zip
 
@@ -41,6 +44,15 @@ python3 tools/upload_hf.py --latest
 ## Results
 
 Training results are stored on HuggingFace: [ThomasTheMaker/BeeWalker-v6](https://huggingface.co/ThomasTheMaker/BeeWalker-v6)
+
+### Model Size vs Throughput
+
+We benchmarked training throughput (`env_sps`, `vec_fps`) across policy sizes from ~20K to ~6.2M params.
+
+- Chart: `analysis/benchmarks/model_size_vs_throughput.png`
+- Raw data: `analysis/benchmarks/model_size_vs_throughput.csv`
+
+![Model size vs throughput](analysis/benchmarks/model_size_vs_throughput.png)
 
 ## Robot Specs
 

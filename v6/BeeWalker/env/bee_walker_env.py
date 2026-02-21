@@ -23,20 +23,33 @@ class BeeWalkerEnv(gym.Env):
     """
     BeeWalker bipedal robot environment with full domain randomization.
     
-    Observation space (22 dims):
-        - Pelvis orientation quaternion (4)
-        - Pelvis angular velocity (3)
-        - Joint positions (6)
-        - Joint velocities (6)
-        - IMU accelerometer (3) - from MPU-6050
+    Observation space:
+        Base (22 dims):
+            - Pelvis orientation quaternion (4)
+            - Pelvis angular velocity (3)
+            - Joint positions (6)
+            - Joint velocities (6)
+            - IMU accelerometer (3) - from MPU-6050
+        Optional phase features (+2 dims):
+            - sin(phase), cos(phase)
     
     Action space (6 dims):
-        - Joint position commands for hip, knee, ankle (left/right)
+        - Joint position commands for hip, knee, ankle (left/right), or
+        - Residual joint deltas around a phase-based reference gait
     """
     
     metadata = {"render_modes": ["rgb_array"], "render_fps": 30}
     
-    def __init__(self, render_mode=None, max_episode_steps=1000):
+    def __init__(
+        self,
+        render_mode=None,
+        max_episode_steps=1000,
+        residual_action=False,
+        phase_features=False,
+        residual_limit=0.35,
+        reference_gait_scale=1.0,
+        gait_frequency_hz=2.0,
+    ):
         super().__init__()
         
         # Load MuJoCo model
@@ -51,6 +64,14 @@ class BeeWalkerEnv(gym.Env):
         # Episode settings
         self.max_episode_steps = max_episode_steps
         self._step_count = 0
+        self._policy_hz = 50.0
+
+        # Control mode
+        self._use_residual_action = residual_action
+        self._use_phase_features = phase_features
+        self._residual_limit = float(residual_limit)
+        self._reference_gait_scale = float(reference_gait_scale)
+        self._gait_frequency_hz = float(gait_frequency_hz)
         
         # === CURRICULUM ===
         # Single progress variable: 0.0 (easy) → 1.0 (hard)
@@ -74,9 +95,11 @@ class BeeWalkerEnv(gym.Env):
         )
         
         # Observation space
-        # Quaternion (4) + angvel (3) + qpos joints (6) + qvel joints (6) + accel (3) = 22
+        # Base: quat (4) + angvel (3) + qpos joints (6) + qvel joints (6) + accel (3) = 22
+        self._base_obs_dim = 22
+        self._obs_dim = self._base_obs_dim + (2 if self._use_phase_features else 0)
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(22,), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(self._obs_dim,), dtype=np.float32
         )
         
         # Cache joint indices
@@ -105,6 +128,23 @@ class BeeWalkerEnv(gym.Env):
         self._accel_adr = self.model.sensor_adr[self._accel_sensor_id]
         self._quat_adr = self.model.sensor_adr[self._quat_sensor_id]
         self._angvel_adr = self.model.sensor_adr[self._angvel_sensor_id]
+
+    def _get_phase(self):
+        return (self._step_count / self._policy_hz) * 2.0 * np.pi * self._gait_frequency_hz
+
+    def _reference_joint_targets(self, phase=None):
+        if phase is None:
+            phase = self._get_phase()
+
+        base = np.array([
+            0.4 * np.sin(phase),
+           -0.3 * np.cos(phase),
+            0.1 * np.sin(phase),
+           -0.4 * np.sin(phase),
+           -0.3 * np.cos(phase + np.pi),
+           -0.1 * np.sin(phase),
+        ], dtype=np.float32)
+        return self._reference_gait_scale * base
     
     def _get_obs(self):
         """Construct observation vector with per-step noise."""
@@ -135,6 +175,11 @@ class BeeWalkerEnv(gym.Env):
         # Simulates sensor imperfection — the model can never fully trust its inputs
         if self.np_random is not None and self._obs_noise_std > 0:
             obs += self.np_random.normal(0, self._obs_noise_std, size=obs.shape).astype(np.float32)
+
+        if self._use_phase_features:
+            phase = self._get_phase()
+            phase_obs = np.array([np.sin(phase), np.cos(phase)], dtype=np.float32)
+            obs = np.concatenate([obs, phase_obs]).astype(np.float32)
         
         return obs
     
@@ -224,9 +269,19 @@ class BeeWalkerEnv(gym.Env):
         return self._get_obs(), self._get_info()
     
     def step(self, action):
-        # Apply action with motor strength randomization
-        action = np.clip(action, -1.57, 1.57)
-        self.data.ctrl[:6] = action * self._motor_strength_scale
+        action = np.asarray(action, dtype=np.float32)
+
+        # Apply action with optional residual reference tracking.
+        if self._use_residual_action:
+            residual = np.clip(action, -self._residual_limit, self._residual_limit)
+            ref = self._reference_joint_targets()
+            applied_action = np.clip(ref + residual, -1.57, 1.57)
+            reward_action = residual
+        else:
+            applied_action = np.clip(action, -1.57, 1.57)
+            reward_action = applied_action
+
+        self.data.ctrl[:6] = applied_action * self._motor_strength_scale
         
         # === PUSH PERTURBATIONS ===
         if self._step_count % self._push_interval == 0 and self.np_random is not None:
@@ -245,7 +300,7 @@ class BeeWalkerEnv(gym.Env):
         obs = self._get_obs()
         
         # Compute reward
-        reward = self._compute_reward(action)
+        reward = self._compute_reward(reward_action)
         
         # Check termination
         terminated = self._check_termination()
@@ -296,16 +351,7 @@ class BeeWalkerEnv(gym.Env):
         stepping_bonus = foot_diff * 3.0
         
         # === REFERENCE MOTION REWARD ===
-        # 1.5Hz gait (~90 steps/min, human-like)
-        phase = (self._step_count / 50.0) * 2.0 * np.pi * 1.5
-        ref_joints = np.array([
-            0.35 * np.sin(phase),
-           -0.25 * np.cos(phase),
-            0.1 * np.sin(phase),
-           -0.35 * np.sin(phase),
-           -0.25 * np.cos(phase + np.pi),
-           -0.1 * np.sin(phase),
-        ])
+        ref_joints = self._reference_joint_targets()
         joint_pos = np.array([self.data.qpos[i] for i in self._joint_qpos_indices])
         ref_error = np.sum((joint_pos - ref_joints) ** 2)
         reference_reward = 1.5 * np.exp(-2.0 * ref_error)
